@@ -71,3 +71,17 @@ def test_model_says_different_unit_is_never_green():
         got = run(same_unit_confidence=unit_confidence(True, False, conf), serial_match=None)
         assert got in (YELLOW, RED), (conf, got)
     assert run(same_unit_confidence=unit_confidence(True, False, 0.9), serial_match=None) == RED
+
+
+def test_vision_reply_parsing_handles_fences_and_chatter():
+    import json as _json
+
+    import pytest as _pytest
+
+    from app.stages.vision import VisionResult, _json_object
+    body = '{"same_item": true, "same_unit": false, "confidence": 0.8, "grade": "B"}'
+    for reply in (body, f"```json\n{body}\n```", f"Here is my answer:\n{body}\nThanks."):
+        r = VisionResult(**_json.loads(_json_object(reply)))
+        assert r.same_unit is False and r.grade == "B"
+    with _pytest.raises(_json.JSONDecodeError):
+        _json_object("I cannot see the item.")
