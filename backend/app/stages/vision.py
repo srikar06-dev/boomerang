@@ -57,6 +57,11 @@ def _call(model_id: str, item_jpg: bytes, serial_jpg: bytes, fingerprint: dict, 
 
 def grade(item_jpg: bytes, serial_jpg: bytes, fingerprint: dict, code: str) -> tuple[VisionResult | None, str]:
     """Returns (result, model_used). result is None if every attempt failed -> policy sends to REVIEW."""
+    if config.LOCAL_MODE:
+        # SIMULATED answer for offline development: no scale reading, so the typed weight decides.
+        return VisionResult(same_item=True, same_unit=True, confidence=0.9, serial_read=fingerprint.get("serial"),
+                            scale_reading_g=None, code_visible=True, grade="A",
+                            notes="SIMULATED - local mode, no model was called"), "simulated-local"
     for model_id in (config.BEDROCK_MODEL_ID, config.BEDROCK_MODEL_ID, config.BEDROCK_FALLBACK_ID):
         try:
             return _call(model_id, item_jpg, serial_jpg, fingerprint, code), model_id
