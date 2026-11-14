@@ -29,6 +29,7 @@ GEMINI_API_KEY = get("GEMINI_API_KEY")
 MONGODB_URI = get("MONGODB_URI")
 MONGODB_DB = get("MONGODB_DB", "returniq")
 LINK_SIGNING_SECRET = get("LINK_SIGNING_SECRET", "dev-only-change-me")
+DEMO_MODE = get("DEMO_MODE", "0") == "1"   # enables POST /seed (wipes demo data); off by default
 
 
 def aws_session() -> boto3.Session:

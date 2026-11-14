@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from . import config, security
+from . import config, security, seed
 from .db import db
 from .models import SessionRequest, SessionResponse
 from .stages.policy import LED, decide
@@ -84,4 +84,11 @@ def create_session(req: SessionRequest):
     })
     return SessionResponse(token=token, code=code, expires_at=expires_at)
 
-# TODO (WP3): /upload-url, /shipout, /return, /review/{id}, /returns, /stats, /evidence/{id}, /seed
+@app.post("/seed")
+def reseed():
+    """Wipes and reloads the demo data. Only works when DEMO_MODE=1 is set in .env on this machine."""
+    if not config.DEMO_MODE:
+        raise HTTPException(status_code=403, detail="Seeding is disabled (set DEMO_MODE=1 in .env)")
+    return {"seeded": seed.run(db())}
+
+# TODO (WP3): /upload-url, /shipout, /return, /review/{id}, /returns, /stats, /evidence/{id}
