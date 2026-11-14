@@ -12,7 +12,7 @@ def secret(monkeypatch):
 def test_round_trip():
     token, exp = security.issue_token("sid1", "ORD-1", now=1000)
     claims = security.verify_token(token, now=1001)
-    assert claims == {"sid": "sid1", "oid": "ORD-1", "exp": exp}
+    assert claims == {"sid": "sid1", "oid": "ORD-1", "p": "return", "exp": exp}
     assert exp == 1000 + security.SESSION_TTL_S
 
 
@@ -53,3 +53,16 @@ def test_code_is_four_digits():
     for _ in range(50):
         code = security.new_code()
         assert len(code) == 4 and code.isdigit()
+
+
+def test_station_key(monkeypatch):
+    monkeypatch.setattr(config, "STATION_KEY", "k" * 48)
+    assert security.station_key_ok("k" * 48)
+    assert not security.station_key_ok("wrong")
+    assert not security.station_key_ok(None)
+
+
+def test_station_key_fails_closed_when_unset(monkeypatch):
+    monkeypatch.setattr(config, "STATION_KEY", None)
+    assert not security.station_key_ok("")
+    assert not security.station_key_ok("anything")

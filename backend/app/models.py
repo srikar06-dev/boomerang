@@ -27,6 +27,8 @@ class Fingerprint(BaseModel):
     """What we recorded about this exact unit when it shipped out."""
     weight_g: float | None = Field(default=None, ge=0)
     photo_keys: list[str] = []
+    sha256: list[str] = []
+    phash: list[str] = []
     serial: str | None = None
     defects: list[str] = []
     grade: Grade = "A"
@@ -60,11 +62,17 @@ class ReturnChecks(BaseModel):
 
 
 class ReturnRecord(BaseModel):
+    return_id: str
     order_id: str
     session_id: str
     created_at: datetime
     photo_keys: list[str] = []
     sha256: list[str] = []
+    phash: list[str] = []
+    return_weight_g: float | None = None
+    model_used: str = "none"
+    vision: dict | None = None        # the model's raw answer, kept as evidence
+    risk_terms: dict = {}
     checks: ReturnChecks = ReturnChecks()
     risk_score: float | None = None
     decision: Decision = "REVIEW"
@@ -74,11 +82,48 @@ class ReturnRecord(BaseModel):
 
 
 # ---------- API ----------
+Purpose = Literal["return", "shipout"]
+Slot = Literal["item", "serial"]
+SLOTS: tuple[str, ...] = ("item", "serial")
+
+
 class SessionRequest(BaseModel):
     order_id: str = Field(pattern=ID_PATTERN)
+    purpose: Purpose = "return"       # "shipout" needs the station key
 
 
 class SessionResponse(BaseModel):
     token: str
     code: str
     expires_at: int  # Unix timestamp (seconds)
+
+
+class UploadUrlRequest(BaseModel):
+    token: str = Field(max_length=600)
+    slot: Slot
+
+
+class UploadUrlResponse(BaseModel):
+    url: str
+    key: str
+    content_type: str = "image/jpeg"  # the PUT must send exactly this Content-Type header
+
+
+class ShipoutRequest(BaseModel):
+    token: str = Field(max_length=600)
+    weight_g: float | None = Field(default=None, ge=0, le=100_000)
+    serial: str | None = Field(default=None, max_length=64)
+
+
+class ReturnRequest(BaseModel):
+    token: str = Field(max_length=600)
+    weight_g: float | None = Field(default=None, ge=0, le=100_000)   # typed backup if the scale is unreadable
+
+
+class ReturnResponse(BaseModel):
+    return_id: str
+    decision: Decision
+    led: str
+    risk_score: float
+    reasons: list[str]
+    disposition: dict
