@@ -27,6 +27,7 @@ $("start").addEventListener("click", async () => {
     state.token = s.token;
     state.blobs = [];
     $("code").textContent = s.code;
+    for (const id of ["code-title", "code", "code-hint"]) show($(id), !!s.code_required);
     show($("serial-wrap"), state.mode === "shipout");
     show($("step-start"), false);
     show($("step-capture"), true);

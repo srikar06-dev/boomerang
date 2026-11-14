@@ -24,7 +24,14 @@ def client():
     if _client is None:
         if not config.S3_BUCKET:
             raise RuntimeError("S3_BUCKET is empty - fill in .env")
-        _client = config.aws_session().client("s3", config=Config(signature_version="s3v4"))
+        # Regional endpoint on purpose: presigned links for a NEW bucket on the global endpoint
+        # (bucket.s3.amazonaws.com) get redirected to the region, and the redirected upload then
+        # fails with SignatureDoesNotMatch. Signing for s3.<region>.amazonaws.com avoids the redirect.
+        _client = config.aws_session().client(
+            "s3",
+            endpoint_url=f"https://s3.{config.AWS_REGION}.amazonaws.com",
+            config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+        )
     return _client
 
 

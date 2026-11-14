@@ -19,7 +19,7 @@ ImageHash==4.3.2
 # --- counter station (USB serial to the Uno, webcam, HTTP to the API) ---
 pyserial==3.5
 requests==2.34.2
-opencv-python-headless==5.0.0.93
+opencv-python==5.0.0.93   # with windows: the station shows a live camera preview
 
 # --- tests ---
 pytest==9.2.0

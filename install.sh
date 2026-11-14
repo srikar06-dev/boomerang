@@ -119,6 +119,8 @@ fi
 # -----------------------------------------------------------------------------
 say "Installing Python packages from backend/requirements.txt"
 "${PY[@]}" -m pip install --upgrade pip
+# opencv-python (with windows) replaced opencv-python-headless; both installed = broken cv2
+"${PY[@]}" -m pip uninstall -y opencv-python-headless >/dev/null 2>&1 || true
 "${PY[@]}" -m pip install -r backend/requirements.txt
 ok "packages installed"
 

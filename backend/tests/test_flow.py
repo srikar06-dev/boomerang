@@ -42,6 +42,9 @@ def world(monkeypatch):
     answer = {"result": VisionResult(same_item=True, same_unit=True, confidence=0.95, code_visible=True,
                                      scale_reading_g=1400, serial_read="SN-0000 0001", grade="A")}
     monkeypatch.setattr(main.vision, "grade", lambda *a, **k: (answer["result"], "fake-model"))
+    # These synthetic ship-out/return pictures are unrelated images, so the OpenCV cross-check
+    # would (correctly) flag every return. It has its own tests in test_visual.py; switch it off here.
+    monkeypatch.setattr(main, "_visual_check", lambda fp, clean: None)
     return database, s3, answer
 
 
@@ -113,11 +116,21 @@ def test_model_failure_goes_to_review(world):
     assert r.decision == "REVIEW" and r.reasons == ["MODEL_UNSURE"]
 
 
-def test_missing_code_goes_to_review(world):
+def test_missing_code_goes_to_review_when_required(world, monkeypatch):
+    monkeypatch.setattr(config, "REQUIRE_CODE", True)
     _, s3, answer = world
     do_shipout(s3)
     answer["result"] = answer["result"].model_copy(update={"code_visible": False})
     assert do_return(s3)[0].decision == "REVIEW"
+
+
+def test_missing_code_is_fine_when_not_required(world, monkeypatch):
+    monkeypatch.setattr(config, "REQUIRE_CODE", False)
+    _, s3, answer = world
+    do_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={"code_visible": False})
+    r, _ = do_return(s3)
+    assert "CODE_NOT_VISIBLE" not in r.reasons and r.decision != "REVIEW"
 
 
 def test_reusing_the_shipout_photo_goes_to_review(world):

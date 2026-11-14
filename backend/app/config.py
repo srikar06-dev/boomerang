@@ -23,8 +23,8 @@ def get(name: str, default: str | None = None) -> str | None:
 AWS_REGION = get("AWS_REGION", "us-east-2")
 AWS_PROFILE = get("AWS_PROFILE")           # preferred: keys stay in ~/.aws/credentials
 S3_BUCKET = get("S3_BUCKET")
-BEDROCK_MODEL_ID = get("BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-5-5")
-BEDROCK_FALLBACK_ID = get("BEDROCK_FALLBACK_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+BEDROCK_MODEL_ID = get("BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
+BEDROCK_FALLBACK_ID = get("BEDROCK_FALLBACK_ID", "us.amazon.nova-pro-v1:0")
 GEMINI_API_KEY = get("GEMINI_API_KEY")
 MONGODB_URI = get("MONGODB_URI")
 MONGODB_DB = get("MONGODB_DB", "returniq")
@@ -35,6 +35,8 @@ ALLOWED_ORIGINS = [o.strip() for o in (get("ALLOWED_ORIGINS") or "").split(",") 
 # 1 = no cloud at all: in-memory database, photos on disk, SIMULATED vision model. See app/local.py.
 LOCAL_MODE = get("LOCAL_MODE", "0") == "1"
 DEMO_MODE = get("DEMO_MODE", "0") == "1"   # enables POST /seed (wipes demo data); off by default
+# 1 = the return photo must show the one-time code (anti-replay). Off for the demo: live capture only.
+REQUIRE_CODE = get("REQUIRE_CODE", "0") == "1"
 
 
 def aws_session() -> boto3.Session:

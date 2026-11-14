@@ -9,10 +9,10 @@ from .. import config
 
 log = logging.getLogger("boomerang.vision")
 
-PROMPT = """You inspect product returns. Image 1: the returned item next to a scale display and an on-screen code.
+PROMPT = """You inspect product returns. Image 1: the returned item, ideally on a scale with its display visible (it may also show an on-screen code).
 Image 2: a close-up of the serial label.
 Ship-out record of this exact unit: {fp}
-Expected on-screen code: {code}
+Expected on-screen code, if any is shown: {code}
 
 Reply with ONLY this JSON, no other text:
 {{"same_item": bool, "same_unit": bool, "confidence": 0-1, "serial_read": string|null,
