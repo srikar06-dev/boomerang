@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from PIL import Image, ImageDraw
 
 from app import config, main, seed
-from app.models import ReturnRequest, SessionRequest, ShipoutRequest, UploadUrlRequest
+from app.models import ReturnRequest, ReviewRequest, SessionRequest, ShipoutRequest, UploadUrlRequest
 from app.stages.vision import VisionResult
 from tests.fakes import FakeDB, FakeS3
 
@@ -38,6 +38,7 @@ def world(monkeypatch):
     monkeypatch.setattr(main, "db", lambda: database)
     monkeypatch.setattr(main.storage, "presign_put", s3.presign_put)
     monkeypatch.setattr(main.storage, "get_bytes", s3.get_bytes)
+    monkeypatch.setattr(main.storage, "presign_get", s3.presign_get)
     answer = {"result": VisionResult(same_item=True, same_unit=True, confidence=0.95, code_visible=True,
                                      scale_reading_g=1400, serial_read="SN-0000 0001", grade="A")}
     monkeypatch.setattr(main.vision, "grade", lambda *a, **k: (answer["result"], "fake-model"))
@@ -56,10 +57,10 @@ def do_shipout(s3, order="ORD-1001", weight=1400, serial="SN00000001", pics=None
     return main.shipout(ShipoutRequest(token=s.token, weight_g=weight, serial=serial))
 
 
-def do_return(s3, order="ORD-1001", pics=None, weight=None):
+def do_return(s3, order="ORD-1001", pics=None, weight=None, label=None, key=None):
     s = main.create_session(SessionRequest(order_id=order))
     upload(s3, s.token, pics or (photo(3), photo(4)))
-    return main.submit_return(ReturnRequest(token=s.token, weight_g=weight)), s
+    return main.submit_return(ReturnRequest(token=s.token, weight_g=weight, label=label), x_station_key=key), s
 
 
 def test_honest_return_is_not_flagged(world):
@@ -192,3 +193,51 @@ def test_station_dependency(world):
     main.require_station(KEY)
     with pytest.raises(HTTPException):
         main.require_station(None)
+
+
+# ---------------------------------------------------------------- staff views
+def test_review_queue_evidence_and_stats(world):
+    database, s3, answer = world
+    do_shipout(s3)                                                     # laptop, $899
+    do_shipout(s3, order="ORD-1005", weight=260, serial="SN00000001")  # headphones, $149
+
+    honest = answer["result"].model_copy(update={"scale_reading_g": 262})
+    answer["result"] = honest
+    green, _ = do_return(s3, order="ORD-1005", pics=(photo(5), photo(6)), label="honest", key=KEY)
+    answer["result"] = honest.model_copy(update={"scale_reading_g": 300})
+    red, _ = do_return(s3, pics=(photo(7), photo(8)), label="fraud", key=KEY)
+    assert (green.decision, red.decision) == ("GREEN", "RED")
+
+    queue = main.list_returns(decision="RED", limit=50)["returns"]
+    assert [r["return_id"] for r in queue] == [red.return_id]
+    assert len(main.list_returns(decision=None, limit=50)["returns"]) == 2
+
+    pack = main.evidence(red.return_id)
+    assert pack["return"]["checks"]["weight_delta_pct"] < -50
+    assert len(pack["photos"]["return"]) == 2 and len(pack["photos"]["shipout"]) == 2
+    assert pack["shipout_fingerprint"]["serial"] == "SN00000001"
+
+    s = main.stats()
+    assert s["by_decision"] == {"GREEN": 1, "YELLOW": 0, "RED": 1, "REVIEW": 0}
+    assert s["money_held_usd"] == 899 and s["instant_refunds_usd"] == 149 and s["awaiting_review"] == 1
+    assert s["test_set"] == {"fraud_total": 1, "fraud_caught": 1, "fraud_instant_refunds": 0,
+                             "honest_total": 1, "honest_flagged": 0}
+
+    after = main.review(ReviewRequest(action="approve", reviewer="Srikar", note="checked by hand"), red.return_id)
+    assert after["decision"] == "RED" and after["review"]["action"] == "approve"   # original decision kept
+    assert main.stats()["money_held_usd"] == 0
+
+
+def test_label_is_ignored_without_station_key(world):
+    database, s3, _ = world
+    do_shipout(s3)
+    do_return(s3, label="honest")
+    assert database.returns.docs[0]["label"] is None
+
+
+def test_unknown_return_is_404(world):
+    for call in (lambda: main.evidence("0" * 32),
+                 lambda: main.review(ReviewRequest(action="hold", reviewer="x"), "0" * 32)):
+        with pytest.raises(HTTPException) as e:
+            call()
+        assert e.value.status_code == 404

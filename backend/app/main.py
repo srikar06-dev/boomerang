@@ -6,20 +6,39 @@ Docs: http://localhost:8000/docs
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path as FilePath
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import config, security, seed, storage
 from .db import db
-from .models import (SLOTS, Fingerprint, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
-                     SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
+from .models import (SLOTS, Decision, Fingerprint, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
+                     ReviewRequest, SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
 from .stages import authenticity, disposition, vision
 from .stages.policy import LED, decide
 from .stages.risk import Signals, score, unit_confidence
 from .stages.sanitize import BadImage, sanitize
 
-app = FastAPI(title="Boomerang", version="0.2.0")
+app = FastAPI(title="Boomerang", version="0.3.0")
+
+# Browsers on other sites may call this API only if their exact origin is listed in ALLOWED_ORIGINS.
+if config.ALLOWED_ORIGINS:
+    app.add_middleware(CORSMiddleware, allow_origins=config.ALLOWED_ORIGINS, allow_methods=["GET", "POST"],
+                       allow_headers=["Content-Type", "X-Station-Key"])
+
+# The web pages (capture, review, dashboard) are served from /app on the same address as the API.
+FRONTEND_DIR = FilePath(__file__).resolve().parents[2] / "frontend"
+if FRONTEND_DIR.is_dir():
+    app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="app")
+
+
+@app.get("/", include_in_schema=False)
+def home():
+    return RedirectResponse("/app/capture.html")
 
 BAD_SESSION = HTTPException(status_code=401, detail="Invalid or expired session")
 
@@ -202,7 +221,7 @@ def _known_photos(order: dict) -> tuple[set[str], list[str]]:
 
 
 @app.post("/return", response_model=ReturnResponse)
-def submit_return(req: ReturnRequest):
+def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default=None)):
     session = _open_session(req.token, "return")
     order = db().orders.find_one({"order_id": session["order_id"]})
     if order is None:
@@ -289,6 +308,11 @@ def submit_return(req: ReturnRequest):
         decision=decision,
         reasons=reasons,
         disposition=plan["action"],
+        ship_back=plan["ship_back"],
+        net_recovery_usd=plan["net_recovery_usd"],
+        sku=order.get("sku"),
+        price_usd=price,
+        label=req.label if security.station_key_ok(x_station_key) else None,
     )
     db().returns.insert_one(record.model_dump())
     return ReturnResponse(return_id=record.return_id, decision=decision, led=LED[decision],
@@ -305,4 +329,93 @@ def reseed():
         raise HTTPException(status_code=403, detail="Seeding is disabled (set DEMO_MODE=1 in .env)")
     return {"seeded": seed.run(db())}
 
-# TODO (WP5): /review/{id}, /returns, /stats, /evidence/{id}
+
+
+# --------------------------------------------------------------------------------------
+# Staff views: review queue, evidence pack, dashboard numbers
+# --------------------------------------------------------------------------------------
+RETURN_ID = Path(pattern=r"^[0-9a-f]{32}$")
+FLAGGED = ("RED", "REVIEW")
+
+
+def _public(doc: dict) -> dict:
+    doc.pop("_id", None)          # MongoDB's internal id is not JSON-friendly and not needed
+    return doc
+
+
+def _get_return(return_id: str) -> dict:
+    doc = db().returns.find_one({"return_id": return_id})
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Unknown return")
+    return _public(doc)
+
+
+@app.get("/returns", dependencies=[Depends(require_station)])
+def list_returns(decision: Decision | None = None, limit: int = Query(default=50, ge=1, le=200)):
+    """Newest first. Filter with ?decision=RED (or GREEN / YELLOW / REVIEW) for the reviewer queue."""
+    query = {"decision": decision} if decision else {}
+    docs = sorted((_public(d) for d in db().returns.find(query)), key=lambda d: d["created_at"], reverse=True)
+    keep = ("return_id", "order_id", "sku", "created_at", "decision", "risk_score", "reasons",
+            "disposition", "price_usd", "review", "label")
+    return {"returns": [{k: d.get(k) for k in keep} for d in docs[:limit]]}
+
+
+@app.post("/review/{return_id}", dependencies=[Depends(require_station)])
+def review(req: ReviewRequest, return_id: str = RETURN_ID):
+    """A person confirms or releases a held return. The automatic decision is kept for the audit trail."""
+    _get_return(return_id)
+    verdict = {"action": req.action, "reviewer": req.reviewer, "note": req.note,
+               "at": datetime.now(timezone.utc)}
+    db().returns.update_one({"return_id": return_id}, {"$set": {"review": verdict}})
+    return _get_return(return_id)
+
+
+@app.get("/evidence/{return_id}", dependencies=[Depends(require_station)])
+def evidence(return_id: str = RETURN_ID):
+    """Everything behind one decision: the record, the ship-out fingerprint, and 5-minute photo links."""
+    record = _get_return(return_id)
+    order = _public(db().orders.find_one({"order_id": record["order_id"]}) or {})
+    fingerprint = order.get("fingerprint") or {}
+    return {
+        "return": record,
+        "order": {"order_id": order.get("order_id"), "sku": order.get("sku"),
+                  "customer_id": order.get("customer_id"), "shipped_at": order.get("shipped_at")},
+        "shipout_fingerprint": fingerprint,
+        "photos": {
+            "return": [storage.presign_get(k) for k in record.get("photo_keys") or []],
+            "shipout": [storage.presign_get(k) for k in fingerprint.get("photo_keys") or []],
+        },
+    }
+
+
+@app.get("/stats", dependencies=[Depends(require_station)])
+def stats():
+    """Dashboard numbers. Dollar figures use the seed prices and the disposition cost assumptions."""
+    docs = list(db().returns.find({}))
+    by_decision = {d: 0 for d in ("GREEN", "YELLOW", "RED", "REVIEW")}
+    for d in docs:
+        by_decision[d["decision"]] = by_decision.get(d["decision"], 0) + 1
+
+    def released(d):   # a reviewer approved it, so the money is no longer held
+        return (d.get("review") or {}).get("action") == "approve"
+
+    held = [d for d in docs if d["decision"] in FLAGGED and not released(d)]
+    not_shipped = [d for d in docs if d["decision"] not in FLAGGED and not d.get("ship_back")]
+    fraud = [d for d in docs if d.get("label") == "fraud"]
+    honest = [d for d in docs if d.get("label") == "honest"]
+    return {
+        "total": len(docs),
+        "by_decision": by_decision,
+        "money_held_usd": round(sum(d.get("price_usd") or 0 for d in held), 2),
+        "instant_refunds_usd": round(sum(d.get("price_usd") or 0 for d in docs if d["decision"] == "GREEN"), 2),
+        "net_recovery_usd": round(sum(d.get("net_recovery_usd") or 0 for d in docs), 2),
+        "shipping_avoided_usd": round(len(not_shipped) * disposition.SHIP_BACK_USD, 2),
+        "awaiting_review": len(held),
+        "test_set": {
+            "fraud_total": len(fraud),
+            "fraud_caught": sum(d["decision"] != "GREEN" for d in fraud),
+            "fraud_instant_refunds": sum(d["decision"] == "GREEN" for d in fraud),
+            "honest_total": len(honest),
+            "honest_flagged": sum(d["decision"] in FLAGGED for d in honest),
+        },
+    }

@@ -82,6 +82,6 @@ def station_key_ok(presented: str | None) -> bool:
     Fails closed: if STATION_KEY is not configured, nobody gets in.
     """
     expected = config.STATION_KEY
-    if not expected or not presented:
+    if not expected or not isinstance(presented, str) or not presented:
         return False
     return hmac.compare_digest(presented.encode(), expected.encode())

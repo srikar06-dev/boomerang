@@ -59,6 +59,9 @@ class FakeS3:
     def presign_put(self, key):
         return f"https://fake-s3.invalid/{key}?sig=x"
 
+    def presign_get(self, key, ttl_s=300):
+        return f"https://fake-s3.invalid/{key}?get=1"
+
     def get_bytes(self, key):
         from app import storage
         if key not in self.objects:

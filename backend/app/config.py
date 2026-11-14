@@ -30,6 +30,8 @@ MONGODB_URI = get("MONGODB_URI")
 MONGODB_DB = get("MONGODB_DB", "returniq")
 LINK_SIGNING_SECRET = get("LINK_SIGNING_SECRET", "dev-only-change-me")
 STATION_KEY = get("STATION_KEY")             # shared staff secret for ship-out, review and seed
+# Only needed when the pages are hosted somewhere else (e.g. Amplify): comma-separated exact origins.
+ALLOWED_ORIGINS = [o.strip() for o in (get("ALLOWED_ORIGINS") or "").split(",") if o.strip()]
 DEMO_MODE = get("DEMO_MODE", "0") == "1"   # enables POST /seed (wipes demo data); off by default
 
 

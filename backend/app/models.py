@@ -78,7 +78,12 @@ class ReturnRecord(BaseModel):
     decision: Decision = "REVIEW"
     reasons: list[str] = []
     disposition: str | None = None
-    reviewer: str | None = None
+    ship_back: bool = False
+    net_recovery_usd: float = 0.0
+    sku: str | None = None
+    price_usd: float = 0.0
+    label: Literal["honest", "fraud"] | None = None   # test-set ground truth, set by staff only
+    review: dict | None = None                        # {"action", "reviewer", "note", "at"} once a person decides
 
 
 # ---------- API ----------
@@ -118,6 +123,7 @@ class ShipoutRequest(BaseModel):
 class ReturnRequest(BaseModel):
     token: str = Field(max_length=600)
     weight_g: float | None = Field(default=None, ge=0, le=100_000)   # typed backup if the scale is unreadable
+    label: Literal["honest", "fraud"] | None = None   # test set only; ignored without the station key
 
 
 class ReturnResponse(BaseModel):
@@ -127,3 +133,9 @@ class ReturnResponse(BaseModel):
     risk_score: float
     reasons: list[str]
     disposition: dict
+
+
+class ReviewRequest(BaseModel):
+    action: Literal["approve", "hold"]
+    reviewer: str = Field(min_length=1, max_length=40)
+    note: str = Field(default="", max_length=500)
