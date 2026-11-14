@@ -18,7 +18,7 @@ from . import config, security, seed, storage
 from .db import db
 from .models import (SLOTS, Decision, Fingerprint, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
                      ReviewRequest, SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
-from .stages import authenticity, disposition, vision
+from .stages import authenticity, disposition, vision, visual_match
 from .stages.policy import LED, decide
 from .stages.risk import Signals, score, unit_confidence
 from .stages.sanitize import BadImage, sanitize
@@ -220,6 +220,18 @@ def _known_photos(order: dict) -> tuple[set[str], list[str]]:
     return sha, ph
 
 
+def _visual_check(fp: dict, clean: list):
+    """Compares this return's photos with the ship-out photos. Any problem -> None (no effect)."""
+    keys = fp.get("photo_keys") or []
+    if len(keys) < 2:
+        return None
+    try:
+        ship = [sanitize(storage.get_bytes(k)) for k in keys[:2]]
+        return visual_match.compare(ship[0].jpeg, ship[1].jpeg, clean[0].jpeg, clean[1].jpeg)
+    except Exception:          # missing photo, bad image, OpenCV error: the cross-check is optional
+        return None
+
+
 @app.post("/return", response_model=ReturnResponse)
 def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default=None)):
     session = _open_session(req.token, "return")
@@ -241,6 +253,9 @@ def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default
     evidence = {"weight_g": fp.get("weight_g"), "serial": fp.get("serial"),
                 "defects": fp.get("defects") or [], "grade": fp.get("grade")}
     result, model_used = vision.grade(clean[0].jpeg, clean[1].jpeg, evidence, session["code"])
+
+    # Local OpenCV cross-check against the ship-out photos. Evidence only; None if unavailable.
+    visual = _visual_check(fp, clean)
 
     price = float(product.get("price_usd") or 0.0)
     ship_weight = fp.get("weight_g")
@@ -276,6 +291,8 @@ def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default
         code_visible=bool(result and result.code_visible),
         image_reused=image_reused,
         price_usd=price,
+        visual_disagrees=bool(result and visual and visual.looks_different
+                              and result.same_item and result.same_unit),
     )
     plan = disposition.choose(result.grade if result else None,
                               product.get("resale_value_by_grade") or {}, decision)
@@ -303,6 +320,8 @@ def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default
             same_unit=result.same_unit if result else None,
             new_damage=result.new_damage if result else [],
             grade=result.grade if result else None,
+            visual_match=visual.score if visual else None,
+            visual_inliers=[visual.item_inliers, visual.serial_inliers] if visual else [],
         ),
         risk_score=risk.score,
         decision=decision,

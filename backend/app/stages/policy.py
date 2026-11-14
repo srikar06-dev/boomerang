@@ -13,6 +13,7 @@ def decide(
     code_visible: bool,
     image_reused: bool,
     price_usd: float,
+    visual_disagrees: bool = False,
 ) -> tuple[str, list[str]]:
     reasons = list(risk.reasons)
 
@@ -47,4 +48,9 @@ def decide(
         decision = REVIEW                  # we recorded a ship-out weight but got no return weight
     if decision == GREEN and ("SERIAL" in risk.missing or risk.terms["V"] > 0.5):
         decision = YELLOW                  # serial unreadable, or the unit match is doubtful
+    # 8. Local OpenCV check says the photos do not show the same unit, but the model says they do.
+    #    Two independent readers disagree -> a person looks. Never RED on this signal alone.
+    if visual_disagrees and decision in (GREEN, YELLOW):
+        decision = REVIEW
+        reasons.append("VISUAL_MISMATCH")
     return decision, reasons

@@ -59,6 +59,8 @@ class ReturnChecks(BaseModel):
     same_unit: bool | None = None
     new_damage: list[str] = []
     grade: Grade | None = None
+    visual_match: float | None = None      # 0..1 from stages/visual_match (local OpenCV)
+    visual_inliers: list[int] = []         # [item centre, serial close-up]
 
 
 class ReturnRecord(BaseModel):
