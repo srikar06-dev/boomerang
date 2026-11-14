@@ -26,6 +26,7 @@ from .stages.risk import Signals, score, unit_confidence
 from .stages.sanitize import BadImage, sanitize
 
 app = FastAPI(title="Boomerang", version="0.3.0")
+log = logging.getLogger("boomerang")
 
 # Browsers on other sites may call this API only if their exact origin is listed in ALLOWED_ORIGINS.
 if config.ALLOWED_ORIGINS:
@@ -237,6 +238,22 @@ def _visual_check(fp: dict, clean: list):
 
 @app.post("/return", response_model=ReturnResponse)
 def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default=None)):
+    """Contract with the station: an internal error comes back as REVIEW / L:Y, never a bare 500.
+
+    Deliberate client errors (bad token 401, missing photo 400, already submitted 409) still raise.
+    """
+    try:
+        return _submit_return(req, x_station_key)
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("/return failed; answering REVIEW")
+        return ReturnResponse(return_id="", decision="REVIEW", led=LED["REVIEW"], risk_score=0.0,
+                              reasons=["INTERNAL_ERROR"],
+                              disposition={"action": "HOLD_FOR_REVIEW", "ship_back": False, "net_recovery_usd": 0.0})
+
+
+def _submit_return(req: ReturnRequest, x_station_key: str | None):
     session = _open_session(req.token, "return")
     order = db().orders.find_one({"order_id": session["order_id"]})
     if order is None:
@@ -253,8 +270,8 @@ def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default
     image_reused = any(authenticity.is_reused(c.sha256, c.phash, known_sha, known_phash) for c in clean)
 
     # Vision: evidence only. None means every attempt failed, and the policy sends that to REVIEW.
-    evidence = {"weight_g": fp.get("weight_g"), "serial": fp.get("serial"),
-                "defects": fp.get("defects") or [], "grade": fp.get("grade")}
+    evidence = {"product": product.get("name") or order.get("sku"), "weight_g": fp.get("weight_g"),
+                "serial": fp.get("serial"), "defects": fp.get("defects") or [], "grade": fp.get("grade")}
     result, model_used = vision.grade(clean[0].jpeg, clean[1].jpeg, evidence, session["code"])
 
     # Local OpenCV cross-check against the ship-out photos. Evidence only; None if unavailable.
@@ -314,6 +331,7 @@ def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default
         phash=[c.phash for c in clean],
         return_weight_g=return_weight,
         model_used=model_used,
+        model_usage=dict(vision.last_usage) if result is not None else {},
         vision=result.model_dump() if result else None,
         risk_terms=risk.terms,
         checks=ReturnChecks(
@@ -411,6 +429,18 @@ def evidence(return_id: str = RETURN_ID):
     }
 
 
+def _usage_summary(docs: list[dict]) -> dict:
+    """Average model cost and median model time per return, for the metrics table."""
+    used = [d.get("model_usage") or {} for d in docs if d.get("model_usage")]
+    costs = [u["cost_usd"] for u in used if u.get("cost_usd") is not None]
+    secs = sorted(u["seconds"] for u in used if u.get("seconds") is not None)
+    return {
+        "calls": len(used),
+        "avg_cost_usd": round(sum(costs) / len(costs), 6) if costs else None,
+        "median_seconds": secs[len(secs) // 2] if secs else None,
+    }
+
+
 @app.get("/stats", dependencies=[Depends(require_station)])
 def stats():
     """Dashboard numbers. Dollar figures use the seed prices and the disposition cost assumptions."""
@@ -434,6 +464,7 @@ def stats():
         "net_recovery_usd": round(sum(d.get("net_recovery_usd") or 0 for d in docs), 2),
         "shipping_avoided_usd": round(len(not_shipped) * disposition.SHIP_BACK_USD, 2),
         "awaiting_review": len(held),
+        "model": _usage_summary(docs),
         "test_set": {
             "fraud_total": len(fraud),
             "fraud_caught": sum(d["decision"] != "GREEN" for d in fraud),

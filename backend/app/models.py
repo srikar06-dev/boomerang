@@ -73,6 +73,7 @@ class ReturnRecord(BaseModel):
     phash: list[str] = []
     return_weight_g: float | None = None
     model_used: str = "none"
+    model_usage: dict = {}            # tokens, seconds and estimated cost of the model call
     vision: dict | None = None        # the model's raw answer, kept as evidence
     risk_terms: dict = {}
     checks: ReturnChecks = ReturnChecks()

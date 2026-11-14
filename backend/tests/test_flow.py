@@ -254,3 +254,31 @@ def test_unknown_return_is_404(world):
         with pytest.raises(HTTPException) as e:
             call()
         assert e.value.status_code == 404
+
+
+# ---------------------------------------------------------------- contract: never a bare 500
+def test_internal_error_answers_review_not_500(world, monkeypatch):
+    database, s3, _ = world
+    do_shipout(s3)
+
+    def broken(doc):
+        raise RuntimeError("database went away")
+    monkeypatch.setattr(database.returns, "insert_one", broken)
+    r, _ = do_return(s3)
+    assert r.decision == "REVIEW" and r.led == "L:Y" and r.reasons == ["INTERNAL_ERROR"]
+
+
+def test_client_errors_still_raise(world):
+    with pytest.raises(HTTPException) as e:
+        main.submit_return(ReturnRequest(token="garbage"), x_station_key=None)
+    assert e.value.status_code == 401
+
+
+def test_model_usage_is_recorded_and_summarised(world, monkeypatch):
+    database, s3, _ = world
+    monkeypatch.setattr(main.vision, "last_usage", {"model": "us.amazon.nova-lite-v1:0", "input_tokens": 3000,
+                                                    "output_tokens": 120, "seconds": 2.5, "cost_usd": 0.000209})
+    do_shipout(s3)
+    do_return(s3)
+    assert database.returns.docs[0]["model_usage"]["input_tokens"] == 3000
+    assert main.stats()["model"] == {"calls": 1, "avg_cost_usd": 0.000209, "median_seconds": 2.5}
