@@ -24,7 +24,7 @@ RANSAC_PX = 5.0         # reprojection error allowed for an inlier, in pixels (a
 INLIERS_FULL = 40       # this many geometric inliers counts as a confident match (score 1.0)
 CENTER_KEEP = 0.6       # keep the middle 60% of the item photo (drops most of the rig background)
 
-MATCH_LOW = 0.25        # below this, the photos do NOT look like the same unit
+MATCH_LOW = 0.5         # below this (20 inliers), the photos do NOT look like the same unit. Calibrate on rig photos!
 
 
 @dataclass

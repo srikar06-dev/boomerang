@@ -42,6 +42,9 @@ def world(monkeypatch):
     answer = {"result": VisionResult(same_item=True, same_unit=True, confidence=0.95, code_visible=True,
                                      scale_reading_g=1400, serial_read="SN-0000 0001", grade="A")}
     monkeypatch.setattr(main.vision, "grade", lambda *a, **k: (answer["result"], "fake-model"))
+    # These synthetic ship-out/return pictures are unrelated images, so the OpenCV cross-check
+    # would (correctly) flag every return. It has its own tests in test_visual.py; switch it off here.
+    monkeypatch.setattr(main, "_visual_check", lambda fp, clean: None)
     return database, s3, answer
 
 
