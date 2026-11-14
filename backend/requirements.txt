@@ -1,0 +1,25 @@
+# Boomerang - Python dependencies (pinned Nov 14, 2026 so all 3 laptops match)
+# Install with:  pip install -r requirements.txt   (install.sh does this for you)
+
+# --- backend ---
+fastapi==0.163.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.3
+python-multipart==0.0.33
+python-dotenv==1.2.4
+
+# --- cloud ---
+boto3==1.44.3
+pymongo==4.20.0
+
+# --- images ---
+pillow==13.0.0
+ImageHash==4.3.2
+
+# --- counter station (USB serial to the Uno, webcam, HTTP to the API) ---
+pyserial==3.5
+requests==2.34.2
+opencv-python-headless==5.0.0.93
+
+# --- tests ---
+pytest==9.2.0
