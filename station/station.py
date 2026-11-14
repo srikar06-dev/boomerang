@@ -146,7 +146,10 @@ def call(method: str, path: str, staff: bool = False, **kw) -> dict:
 
 def upload(token: str, slot: str, jpeg: bytes) -> None:
     info = call("POST", "/upload-url", json={"token": token, "slot": slot})
-    put = requests.put(info["url"], data=jpeg,
+    url = info["url"]
+    if url.startswith("/"):                     # LOCAL_MODE returns a same-server path, not an S3 URL
+        url = API_URL + url
+    put = requests.put(url, data=jpeg,
                        headers={"Content-Type": info.get("content_type", "image/jpeg")}, timeout=60)
     if put.status_code >= 300:
         raise RuntimeError(f"S3 upload for '{slot}' failed: {put.status_code} {put.text[:200]}")
