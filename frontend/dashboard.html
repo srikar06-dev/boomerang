@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https: http:">
+<title>Boomerang - Dashboard</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>Boomerang</h1>
+  <nav><a href="capture.html">Capture</a><a href="review.html">Review</a><a class="here" href="dashboard.html">Dashboard</a></nav>
+</header>
+<main>
+  <section class="card">
+    <div class="row">
+      <div><label for="key">Station key</label><input id="key" type="password" autocomplete="off"></div>
+      <div class="fixed"><button id="connect">Load</button></div>
+    </div>
+    <p class="error" id="error" role="alert"></p>
+  </section>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section class="card">
+    <h2>Decisions</h2>
+    <div id="bars"></div>
+  </section>
+
+  <section class="card">
+    <h2>Test set (labelled returns)</h2>
+    <table>
+      <thead><tr><th>Metric</th><th>Target</th><th>Result</th></tr></thead>
+      <tbody id="metrics"></tbody>
+    </table>
+    <p class="muted">Customers, prices and return histories are synthetic demo data. Dollar figures use the seed prices and assumed shipping and handling costs.</p>
+  </section>
+</main>
+<script src="app.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>

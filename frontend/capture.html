@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self' https: http:">
+<title>Boomerang - Capture</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>Boomerang</h1>
+  <nav><a class="here" href="capture.html">Capture</a><a href="review.html">Review</a><a href="dashboard.html">Dashboard</a></nav>
+</header>
+<main>
+  <section class="card" id="step-start">
+    <h2 id="title">Start a return</h2>
+    <div class="row">
+      <div><label for="order">Order ID</label><input id="order" autocomplete="off" placeholder="ORD-1001"></div>
+      <div><label for="mode">Mode</label>
+        <select id="mode"><option value="return">Return check</option><option value="shipout">Ship-out (staff)</option></select></div>
+      <div id="key-wrap" class="hidden"><label for="key">Station key</label><input id="key" type="password" autocomplete="off"></div>
+      <div class="fixed"><button id="start">Start</button></div>
+    </div>
+    <p class="error" id="start-error" role="alert"></p>
+  </section>
+
+  <section class="card hidden" id="step-capture">
+    <h2>Show this code in the first photo</h2>
+    <div class="code" id="code" aria-live="polite"></div>
+    <p class="muted">At the station, keep this screen in the camera's view. On a phone, write the code on paper and place it next to the item.</p>
+
+    <video id="video" autoplay playsinline muted class="hidden"></video>
+    <div id="no-camera" class="hidden">
+      <p class="muted">Live camera is not available on this page (it needs HTTPS or localhost). Use the buttons below to take each photo instead.</p>
+      <input id="file" type="file" accept="image/*" capture="environment" class="hidden">
+    </div>
+    <p class="muted" id="hint"></p>
+    <div class="row">
+      <div class="fixed"><button id="shoot">Take photo</button></div>
+      <div class="fixed"><button id="retake" class="secondary" disabled>Start over</button></div>
+    </div>
+    <div class="shots">
+      <figure><img class="shot hidden" id="shot-item" alt="Item photo"><figcaption>1. Item, scale display and code</figcaption></figure>
+      <figure><img class="shot hidden" id="shot-serial" alt="Serial photo"><figcaption>2. Serial label close-up</figcaption></figure>
+    </div>
+    <div class="row">
+      <div><label for="weight">Weight in grams (optional backup)</label><input id="weight" type="number" min="0" max="100000" step="1" inputmode="numeric"></div>
+      <div id="serial-wrap" class="hidden"><label for="serial">Serial number</label><input id="serial" maxlength="64" autocomplete="off"></div>
+      <div class="fixed"><button id="submit" disabled>Submit</button></div>
+    </div>
+    <p class="error" id="capture-error" role="alert"></p>
+  </section>
+
+  <section class="card hidden" id="step-result">
+    <div class="verdict" id="verdict">
+      <div class="big" id="verdict-title"></div>
+      <div id="verdict-sub"></div>
+    </div>
+    <ul class="reasons" id="reasons"></ul>
+    <p class="muted" id="disposition"></p>
+    <button id="again" class="secondary">New check</button>
+  </section>
+</main>
+<script src="app.js"></script>
+<script src="capture.js"></script>
+</body>
+</html>

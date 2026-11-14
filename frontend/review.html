@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: blob:; connect-src 'self' https: http:">
+<title>Boomerang - Review queue</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>Boomerang</h1>
+  <nav><a href="capture.html">Capture</a><a class="here" href="review.html">Review</a><a href="dashboard.html">Dashboard</a></nav>
+</header>
+<main>
+  <section class="card">
+    <div class="row">
+      <div><label for="key">Station key</label><input id="key" type="password" autocomplete="off"></div>
+      <div><label for="filter">Show</label>
+        <select id="filter"><option value="">All returns</option><option value="RED" selected>Held (red)</option>
+          <option value="REVIEW">Needs review</option><option value="YELLOW">Yellow</option><option value="GREEN">Green</option></select></div>
+      <div class="fixed"><button id="connect">Load</button></div>
+    </div>
+    <p class="error" id="error" role="alert"></p>
+  </section>
+
+  <section class="card">
+    <h2>Returns</h2>
+    <table>
+      <thead><tr><th>When</th><th>Order</th><th>Decision</th><th>Risk</th><th>Reasons</th><th>Reviewed</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="muted" id="empty">Enter the station key and press Load.</p>
+  </section>
+
+  <section class="card hidden" id="detail">
+    <h2 id="detail-title"></h2>
+    <div class="shots">
+      <figure><div id="ship-photos"></div><figcaption>Ship-out record</figcaption></figure>
+      <figure><div id="return-photos"></div><figcaption>Return</figcaption></figure>
+    </div>
+    <dl class="kv" id="facts"></dl>
+    <div class="row">
+      <div><label for="reviewer">Your name</label><input id="reviewer" maxlength="40" autocomplete="off"></div>
+      <div><label for="note">Note</label><input id="note" maxlength="500" autocomplete="off"></div>
+      <div class="fixed"><button id="approve">Approve refund</button></div>
+      <div class="fixed"><button id="hold" class="secondary">Keep on hold</button></div>
+    </div>
+    <p class="error" id="detail-error" role="alert"></p>
+  </section>
+</main>
+<script src="app.js"></script>
+<script src="review.js"></script>
+</body>
+</html>
