@@ -8,13 +8,15 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path as FilePath
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
+import logging
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, security, seed, storage
+from . import config, local, security, seed, storage
 from .db import db
 from .models import (SLOTS, Decision, Fingerprint, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
                      ReviewRequest, SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
@@ -59,6 +61,7 @@ def health():
         "s3_bucket_set": bool(config.S3_BUCKET),
         "mongodb_set": bool(config.MONGODB_URI),
         "station_key_set": bool(config.STATION_KEY),
+        "local_mode": config.LOCAL_MODE,     # True = no cloud, SIMULATED model
     }
 
 
@@ -439,3 +442,32 @@ def stats():
             "honest_flagged": sum(d["decision"] in FLAGGED for d in honest),
         },
     }
+
+
+# --------------------------------------------------------------------------------------
+# Local mode only: stand-ins for S3's presigned PUT and GET (see app/local.py)
+# --------------------------------------------------------------------------------------
+if config.LOCAL_MODE:
+    logging.getLogger("uvicorn.error").warning(
+        "LOCAL_MODE=1: in-memory database, photos on disk, SIMULATED vision model. Not for real decisions.")
+
+    @app.put("/local-upload/{key:path}", include_in_schema=False)
+    async def local_upload(key: str, exp: int, sig: str, request: Request):
+        if not local.link_ok("PUT", key, exp, sig):
+            raise HTTPException(status_code=403, detail="Bad or expired upload link")
+        if int(request.headers.get("content-length") or 0) > storage.MAX_PHOTO_BYTES:
+            raise HTTPException(status_code=413, detail="Photo is too large")
+        data = await request.body()
+        if len(data) > storage.MAX_PHOTO_BYTES:
+            raise HTTPException(status_code=413, detail="Photo is too large")
+        local.save(key, data)
+        return Response(status_code=200)
+
+    @app.get("/local-file/{key:path}", include_in_schema=False)
+    def local_file(key: str, exp: int, sig: str):
+        if not local.link_ok("GET", key, exp, sig):
+            raise HTTPException(status_code=403, detail="Bad or expired link")
+        data = local.load(key)
+        if data is None:
+            raise HTTPException(status_code=404, detail="No such photo")
+        return Response(content=data, media_type="image/jpeg", headers={"X-Content-Type-Options": "nosniff"})

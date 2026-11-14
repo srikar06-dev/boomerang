@@ -60,3 +60,4 @@ tr.pick:hover { background: #f1f4f8; }
 dl.kv { display: grid; grid-template-columns: 170px 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
 dl.kv dt { color: var(--muted); } dl.kv dd { margin: 0; }
 @media (max-width: 600px) { .shots { grid-template-columns: 1fr; } .code { font-size: 56px; } }
+.banner { background: var(--yellow-bg); color: var(--yellow); border-radius: 8px; padding: 10px 14px; font-size: 14px; }

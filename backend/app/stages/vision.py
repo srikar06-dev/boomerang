@@ -49,14 +49,25 @@ def _call(model_id: str, item_jpg: bytes, serial_jpg: bytes, fingerprint: dict, 
     ]}
     r = client().converse(modelId=model_id, messages=[msg],
                           inferenceConfig={"maxTokens": 600, "temperature": 0})
-    text = r["output"]["message"]["content"][0]["text"].strip()
-    if text.startswith("```"):
-        text = text.strip("`").removeprefix("json").strip()
-    return VisionResult(**json.loads(text))
+    text = "".join(part.get("text", "") for part in r["output"]["message"]["content"])
+    return VisionResult(**json.loads(_json_object(text)))
+
+
+def _json_object(text: str) -> str:
+    """Pulls the JSON object out of a reply. Nova sometimes wraps it in ```json fences or adds a sentence."""
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end < start:
+        raise json.JSONDecodeError("no JSON object in model reply", text, 0)
+    return text[start:end + 1]
 
 
 def grade(item_jpg: bytes, serial_jpg: bytes, fingerprint: dict, code: str) -> tuple[VisionResult | None, str]:
     """Returns (result, model_used). result is None if every attempt failed -> policy sends to REVIEW."""
+    if config.LOCAL_MODE:
+        # SIMULATED answer for offline development: no scale reading, so the typed weight decides.
+        return VisionResult(same_item=True, same_unit=True, confidence=0.9, serial_read=fingerprint.get("serial"),
+                            scale_reading_g=None, code_visible=True, grade="A",
+                            notes="SIMULATED - local mode, no model was called"), "simulated-local"
     for model_id in (config.BEDROCK_MODEL_ID, config.BEDROCK_MODEL_ID, config.BEDROCK_FALLBACK_ID):
         try:
             return _call(model_id, item_jpg, serial_jpg, fingerprint, code), model_id

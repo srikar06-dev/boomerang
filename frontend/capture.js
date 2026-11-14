@@ -173,3 +173,6 @@ function showShipout(r) {
 
 $("again").addEventListener("click", () => window.location.reload());
 window.addEventListener("pagehide", stopCamera);
+
+// Tell the user plainly when the server is running without the real model.
+api("/health").then((h) => show($("local-banner"), h.local_mode === true)).catch(() => {});
