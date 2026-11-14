@@ -1,9 +1,13 @@
 """Vision grading via Amazon Bedrock (Converse API). Output is evidence, never a decision."""
 import json
+import logging
+from typing import Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from .. import config
+
+log = logging.getLogger("boomerang.vision")
 
 PROMPT = """You inspect product returns. Image 1: the returned item next to a scale display and an on-screen code.
 Image 2: a close-up of the serial label.
@@ -18,12 +22,12 @@ Reply with ONLY this JSON, no other text:
 class VisionResult(BaseModel):
     same_item: bool
     same_unit: bool
-    confidence: float
+    confidence: float = Field(ge=0, le=1)
     serial_read: str | None = None
     scale_reading_g: float | None = None
     code_visible: bool = False
     new_damage: list[str] = []
-    grade: str = "C"
+    grade: Literal["A", "B", "C", "D"] = "C"
     notes: str = ""
 
 
@@ -56,8 +60,10 @@ def grade(item_jpg: bytes, serial_jpg: bytes, fingerprint: dict, code: str) -> t
     for model_id in (config.BEDROCK_MODEL_ID, config.BEDROCK_MODEL_ID, config.BEDROCK_FALLBACK_ID):
         try:
             return _call(model_id, item_jpg, serial_jpg, fingerprint, code), model_id
-        except (ValidationError, json.JSONDecodeError, KeyError):
+        except (ValidationError, json.JSONDecodeError, KeyError) as e:
+            log.warning("vision: bad model output from %s: %s", model_id, type(e).__name__)
             continue
-        except Exception:  # network / throttling / access
+        except Exception as e:  # network / throttling / access
+            log.warning("vision: call to %s failed: %s: %s", model_id, type(e).__name__, str(e)[:200])
             continue
     return None, "none"

@@ -23,6 +23,7 @@ class Signals:
     total_orders: int = 1
     price_usd: float = 0.0
     sensor_distance: float | None = None  # 0..1 sealed-box signature mismatch (optional)
+    serial_expected: bool = True          # False for products that have no serial (hoodie, bottle)
 
 
 @dataclass
@@ -30,6 +31,17 @@ class RiskResult:
     score: float
     terms: dict
     reasons: list = field(default_factory=list)
+    missing: list = field(default_factory=list)  # evidence we expected but did not get: "WEIGHT", "SERIAL"
+
+
+def unit_confidence(same_item: bool, same_unit: bool, confidence: float) -> float:
+    """Turns the vision model's answer into Signals.same_unit_confidence.
+
+    The model returns ONE confidence for its whole answer. "Different unit, 90% sure" must
+    become 0.1 here, not 0.9 - passing the raw confidence through would score a swap as safe.
+    """
+    c = max(0.0, min(1.0, confidence))
+    return c if (same_item and same_unit) else 1.0 - c
 
 
 def weight_term(ship: float | None, ret: float | None) -> float:
@@ -46,7 +58,11 @@ def weight_term(ship: float | None, ret: float | None) -> float:
 
 def score(s: Signals) -> RiskResult:
     reasons = []
+    missing = []
     W = weight_term(s.shipout_weight_g, s.return_weight_g)
+    if s.shipout_weight_g and s.return_weight_g is None:
+        missing.append("WEIGHT")           # no reading is not the same as a matching reading
+        reasons.append("WEIGHT_MISSING")
     if W > 0:
         reasons.append(f"WEIGHT_MISMATCH ({s.shipout_weight_g:.0f} g -> {s.return_weight_g:.0f} g)")
 
@@ -56,6 +72,9 @@ def score(s: Signals) -> RiskResult:
         reasons.append("SERIAL_MISMATCH")
     elif V > 0.5:
         reasons.append("UNIT_MATCH_LOW")
+    if s.serial_match is None and s.serial_expected:
+        missing.append("SERIAL")
+        reasons.append("SERIAL_UNREADABLE")
 
     S = max(0.0, min(1.0, s.sensor_distance or 0.0))
     if S > 0.5:
@@ -73,4 +92,4 @@ def score(s: Signals) -> RiskResult:
 
     terms = {"W": W, "V": V, "S": S, "D": D, "H": H, "P": P}
     total = sum(WEIGHTS[k] * v for k, v in terms.items())
-    return RiskResult(score=round(total, 3), terms=terms, reasons=reasons)
+    return RiskResult(score=round(total, 3), terms=terms, reasons=reasons, missing=missing)

@@ -42,4 +42,9 @@ def decide(
     if decision == GREEN and price_usd > 300:
         decision = YELLOW
         reasons.append("HIGH_VALUE")
+    # 7. Missing or weak evidence is never an instant refund (reasons were added by risk.score)
+    if decision == GREEN and "WEIGHT" in risk.missing:
+        decision = REVIEW                  # we recorded a ship-out weight but got no return weight
+    if decision == GREEN and ("SERIAL" in risk.missing or risk.terms["V"] > 0.5):
+        decision = YELLOW                  # serial unreadable, or the unit match is doubtful
     return decision, reasons
