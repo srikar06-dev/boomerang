@@ -13,8 +13,6 @@ Flow (same calls as frontend/capture.js):
 """
 import argparse
 import os
-import platform
-import subprocess
 import sys
 import time
 from datetime import datetime
@@ -70,35 +68,64 @@ class Uno:
 
 
 # ---------------------------------------------------------------- camera
-def open_file(path: Path) -> None:
-    """Shows the photo so you can check framing (Linux: xdg-open, Mac: open)."""
-    opener = "open" if platform.system() == "Darwin" else "xdg-open"
-    subprocess.Popen([opener, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def _label(img, text, y, color):
+    import cv2
+    cv2.putText(img, text, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 5, cv2.LINE_AA)   # outline
+    cv2.putText(img, text, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2, cv2.LINE_AA)
+
+
+def _fit(img, max_w=1280):
+    """Scales a frame down for the screen only; the saved photo keeps full resolution."""
+    import cv2
+    h, w = img.shape[:2]
+    return img if w <= max_w else cv2.resize(img, (max_w, int(h * max_w / w)))
 
 
 def snap(camera_index: int, name: str, hint: str) -> bytes:
+    """Live preview window: SPACE = take photo, then Y = keep / N = retake. Q = cancel this check."""
     import cv2
-    while True:
-        input(f"\n[{name}] {hint}\n  Press Enter to take the photo...")
-        cam = cv2.VideoCapture(camera_index)
-        if not cam.isOpened():
-            sys.exit(f"Camera {camera_index} not found. Try --camera 1 (or 2), or use --photos.")
-        cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        for _ in range(8):                        # first frames are dark while exposure settles
-            cam.read()
-        ok, frame = cam.read()
+    print(f"\n[{name}] {hint}\n  Camera window: SPACE = take photo, Q = cancel")
+    cam = cv2.VideoCapture(camera_index)
+    if not cam.isOpened():
+        raise RuntimeError(f"Camera {camera_index} not found. Try --camera 2, or use --photos.")
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    win = f"Boomerang - {name} photo"
+    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    try:
+        while True:
+            ok, frame = cam.read()
+            if not ok:
+                if cv2.waitKey(30) & 0xFF == ord("q"):
+                    raise RuntimeError("Cancelled")
+                continue
+            view = _fit(frame.copy())
+            _label(view, f"{name.upper()} - SPACE: take photo   Q: cancel", 40, (0, 255, 0))
+            cv2.imshow(win, view)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                raise RuntimeError("Cancelled")
+            if key != 32:                          # 32 = SPACE
+                continue
+            still = _fit(frame.copy())
+            _label(still, "Y: keep this photo    N: retake", 40, (0, 200, 255))
+            cv2.imshow(win, still)
+            while (k := cv2.waitKey(0) & 0xFF) not in (ord("y"), ord("n"), ord("q"), 13):
+                pass
+            if k == ord("q"):
+                raise RuntimeError("Cancelled")
+            if k in (ord("y"), 13):                # Y or Enter keeps it
+                ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                CAPTURE_DIR.mkdir(exist_ok=True)
+                path = CAPTURE_DIR / f"{datetime.now():%H%M%S}_{name}.jpg"
+                path.write_bytes(jpg.tobytes())
+                h, w = frame.shape[:2]
+                print(f"  saved {path.name} ({w}x{h})")
+                return jpg.tobytes()
+    finally:
         cam.release()
-        if not ok:
-            print("  Could not read from the camera, trying again.")
-            continue
-        ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-        CAPTURE_DIR.mkdir(exist_ok=True)
-        path = CAPTURE_DIR / f"{datetime.now():%H%M%S}_{name}.jpg"
-        path.write_bytes(jpg.tobytes())
-        open_file(path)
-        if input(f"  Saved {path.name}. Keep it? [Y/n] ").strip().lower() != "n":
-            return jpg.tobytes()
+        cv2.destroyWindow(win)
+        cv2.waitKey(1)                             # lets the window actually close
 
 
 # ---------------------------------------------------------------- API
@@ -146,12 +173,15 @@ def run_once(args, uno: Uno) -> None:
     session = call("POST", "/session", staff=(purpose == "shipout"),
                    json={"order_id": order_id, "purpose": purpose})
     token, code = session["token"], session["code"]
-    print(f"\n{purpose.upper()} {order_id} - put this code in photo 1:\n\n{big(code)}\n\n   CODE {code}\n")
+    if session.get("code_required"):
+        print(f"\n{purpose.upper()} {order_id} - put this code in photo 1:\n\n{big(code)}\n\n   CODE {code}\n")
+    else:
+        print(f"\n{purpose.upper()} {order_id}")
 
     if args.photos:
         item, serial_photo = (Path(p).read_bytes() for p in args.photos)
     else:
-        item = snap(args.camera, "item", "Item ON the scale, scale display AND this code on screen in view.")
+        item = snap(args.camera, "item", "Item ON the scale with the scale display in view" + (" AND the code on screen." if session.get("code_required") else "."))
         serial_photo = snap(args.camera, "serial", "Close-up of the serial label (fill at least 1/3 of the frame).")
 
     upload(token, "item", item)

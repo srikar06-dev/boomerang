@@ -123,7 +123,7 @@ def create_session(req: SessionRequest, x_station_key: str | None = Header(defau
         "used": False,               # flipped once on submit, so a token cannot be replayed
         "created_at": datetime.now(timezone.utc),
     })
-    return SessionResponse(token=token, code=code, expires_at=expires_at)
+    return SessionResponse(token=token, code=code, expires_at=expires_at, code_required=config.REQUIRE_CODE)
 
 
 def _open_session(token: str, purpose: str) -> dict:
@@ -288,7 +288,8 @@ def submit_return(req: ReturnRequest, x_station_key: str | None = Header(default
         risk,
         model_ok=result is not None,
         model_confidence=result.confidence if result else 0.0,
-        code_visible=bool(result and result.code_visible),
+        # The code check only counts when REQUIRE_CODE=1; otherwise live capture alone is enough.
+        code_visible=(not config.REQUIRE_CODE) or bool(result and result.code_visible),
         image_reused=image_reused,
         price_usd=price,
         visual_disagrees=bool(result and visual and visual.looks_different

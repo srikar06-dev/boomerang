@@ -32,7 +32,9 @@ LINK_SIGNING_SECRET = get("LINK_SIGNING_SECRET", "dev-only-change-me")
 STATION_KEY = get("STATION_KEY")             # shared staff secret for ship-out, review and seed
 # Only needed when the pages are hosted somewhere else (e.g. Amplify): comma-separated exact origins.
 ALLOWED_ORIGINS = [o.strip() for o in (get("ALLOWED_ORIGINS") or "").split(",") if o.strip()]
-DEMO_MODE = get("DEMO_MODE", "0") == "1"   # enables POST /seed (wipes demo data); off by default
+DEMO_MODE = get("DEMO_MODE", "0") == "1"
+# 1 = the return photo must show the one-time code (anti-replay). Off for the demo: live capture only.
+REQUIRE_CODE = get("REQUIRE_CODE", "0") == "1"   # enables POST /seed (wipes demo data); off by default
 
 
 def aws_session() -> boto3.Session:

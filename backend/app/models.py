@@ -103,6 +103,7 @@ class SessionResponse(BaseModel):
     token: str
     code: str
     expires_at: int  # Unix timestamp (seconds)
+    code_required: bool = False  # show the code to the user only when this is true
 
 
 class UploadUrlRequest(BaseModel):
