@@ -65,6 +65,7 @@ def health():
         "mongodb_set": bool(config.MONGODB_URI),
         "station_key_set": bool(config.STATION_KEY),
         "local_mode": config.LOCAL_MODE,     # True = no cloud, SIMULATED model
+        "demo_mode": config.DEMO_MODE,       # True = demo key is literally "demo"
     }
 
 

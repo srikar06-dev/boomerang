@@ -77,7 +77,15 @@ function setupStaffBar(onReady) {
   if (change) change.addEventListener("click", () => { connected(false); key.select(); key.focus(); });
   // A rejected key puts the field back so it can be fixed.
   window.addEventListener("boomerang:badkey", () => connected(false));
-  if (key.value) go(); else connected(false);
+  if (key.value) {
+    go();
+  } else {
+    connected(false);
+    // In demo mode the key is literally "demo" — auto-connect so the dashboard loads without manual input.
+    fetch(apiBase() + "/health").then(r => r.json()).then(h => {
+      if (h.demo_mode && !key.value) { key.value = "demo"; go(); }
+    }).catch(() => { /* health check failed: leave the key field for manual entry */ });
+  }
 }
 
 // Call after a failed staff request: if the key was refused, reopen the key field.
