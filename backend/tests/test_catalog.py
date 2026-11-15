@@ -16,3 +16,14 @@ def test_new_customer_is_created_if_missing():
     db = FakeDB()
     catalog.add_item(db, "Mug", 12, 300, False, customer_id="CUST-777")
     assert db.customers.find_one({"customer_id": "CUST-777"}) is not None
+
+
+def test_profile_is_stored_and_box_counts_as_a_code():
+    from app import catalog
+    from app.models import unit_id_of
+    from tests.fakes import FakeDB
+    db = FakeDB()
+    catalog.add_item(db, "Arduino Nano", 45, None, has_serial=False, orders=1, unit_id="box")
+    p = db.products.find_one({"sku": "ARDUINO-NANO-X"})
+    assert p["unit_id"] == "box" and p["has_serial"] is True and unit_id_of(p) == "box"
+    assert unit_id_of({"has_serial": False}) == "none" and unit_id_of({}) == "device"

@@ -8,10 +8,13 @@ HANDLING_USD = 4.0       # assumed warehouse receive + inspect
 REFURB_USD = 15.0        # assumed clean/repair for grade C
 
 
-def choose(grade: str | None, resale_value_by_grade: dict, decision: str) -> dict:
+def choose(grade: str | None, resale_value_by_grade: dict, decision: str, opened_consumable: bool = False) -> dict:
     assumptions = {"ship_back_usd": SHIP_BACK_USD, "handling_usd": HANDLING_USD, "refurb_usd": REFURB_USD}
     if decision in ("RED", "REVIEW") or grade is None:
         return {"action": "HOLD_FOR_REVIEW", "ship_back": False, "net_recovery_usd": 0.0, "assumptions": assumptions}
+    if opened_consumable:
+        # Opened cream/cosmetics/food: never restocked, whatever it looks like. Not worth shipping back.
+        return {"action": "DISPOSE", "ship_back": False, "net_recovery_usd": 0.0, "assumptions": assumptions}
 
     value = float(resale_value_by_grade.get(grade, 0.0))
     net_if_shipped = value - SHIP_BACK_USD - HANDLING_USD

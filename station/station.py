@@ -173,9 +173,15 @@ def new_item() -> str:
     price = None
     while price is None:
         price = ask_float("  Price in USD: ")
-    has_serial = input("  Has a printed serial number? [Y/n]: ").strip().lower() != "n"
-    out = call("POST", "/orders", staff=True, json={"name": name, "price_usd": price, "has_serial": has_serial})
-    print(f"  Created order {out['order_id']} for '{name}' (${price:g}). Use this ID for the return later.")
+    print("  Where is the serial?  d = on the device itself (serial/IMEI)")
+    print("                        b = only on the box/packaging label")
+    print("                        n = nowhere (no serial)")
+    unit_id = {"b": "box", "n": "none"}.get(input("  [D/b/n]: ").strip().lower()[:1], "device")
+    sealed = input("  Factory-sealed consumable (cream, cosmetics, food)? [y/N]: ").strip().lower() == "y"
+    out = call("POST", "/orders", staff=True,
+               json={"name": name, "price_usd": price, "unit_id": unit_id, "sealed_consumable": sealed})
+    print(f"  Created order {out['order_id']} for '{name}' (${price:g}, serial: {out['unit_id']}"
+          f"{', sealed' if out['sealed_consumable'] else ''}). Use this ID for the return later.")
     return out["order_id"]
 
 
@@ -211,11 +217,39 @@ def run_once(args, uno: Uno) -> None:
 
     started = time.time()
     if purpose == "shipout":
+        ship_anyway, suggestion = False, None
+        print("Checking the pick (is this the ordered product?)...")
+        try:
+            check = call("POST", "/shipout/check", staff=True, json={"token": token})
+        except RuntimeError as e:
+            check = {}
+            print(f"  !! pick check failed ({e}) - continuing without it")
+        if check.get("product_match") is False:
+            uno.led("L:Y")
+            print(f"\n  !! WRONG ITEM? This order is for: {check.get('product_name')}")
+            print(f"     Model says: {check.get('notes')}")
+            if input("  Ship anyway? [y/N]: ").strip().lower() != "y":
+                print("Not shipped. Pick the right item and start the ship-out again.")
+                return
+            ship_anyway = True
+        elif check.get("product_match"):
+            print(f"  OK - looks like {check.get('product_name')}.")
+        if check.get("sealed_consumable") and check.get("seal_intact") is not True:
+            print("  !! Sealed product, but the seal is not clearly intact in photo 1 - check it before shipping.")
+        for d in check.get("defects") or []:
+            print(f"  note: existing damage recorded: {d}")
+        suggestion = check.get("serial_suggestion")
         weight = ask_float("Scale reading in grams (Enter to skip): ")
-        serial_text = input("Serial number as printed (Enter to skip): ").strip() or None
+        if check.get("unit_id") == "none":
+            serial_text = None                     # this product has no serial: nothing to ask
+        elif suggestion:
+            typed = input(f"Serial number [{suggestion}] (Enter = accept, '-' = none, or type it): ").strip()
+            serial_text = None if typed == "-" else (typed or suggestion)
+        else:
+            serial_text = input("Serial number as printed (Enter to skip): ").strip() or None
         out = call("POST", "/shipout", staff=True,
-                   json={"token": token, "weight_g": weight, "serial": serial_text})
-        print(f"\nShip-out saved for {out['order_id']}.")
+                   json={"token": token, "weight_g": weight, "serial": serial_text, "ship_anyway": ship_anyway})
+        print(f"\nShip-out saved for {out['order_id']}" + (" (shipped anyway - recorded)." if ship_anyway else "."))
         uno.led("L:G")
         return
 

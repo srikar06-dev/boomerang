@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 Grade = Literal["A", "B", "C", "D"]
 Decision = Literal["GREEN", "YELLOW", "RED", "REVIEW"]
+UnitId = Literal["device", "box", "none"]
 ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # ids come from clients: keep them to safe characters
 
 
@@ -21,6 +22,16 @@ class Product(BaseModel):
     has_serial: bool = True
     listing_photo_url: str | None = None
     resale_value_by_grade: dict[str, float] = {}  # {"A": 40, "B": 28, "C": 12}
+    # Return profile. unit_id says what can prove it is the SAME unit:
+    #   device = serial/IMEI printed on the item itself; box = only a packaging label (FNSKU names the
+    #   listing, not the unit); none = nothing. None means "work it out from has_serial" (old data).
+    unit_id: UnitId | None = None
+    sealed_consumable: bool = False   # cream, cosmetics, food: once opened it can never be resold
+
+
+def unit_id_of(product: dict) -> str:
+    """The product's unit_id, falling back to has_serial for products stored before profiles existed."""
+    return product.get("unit_id") or ("device" if product.get("has_serial", True) else "none")
 
 
 class Fingerprint(BaseModel):
@@ -34,6 +45,10 @@ class Fingerprint(BaseModel):
     grade: Grade = "A"
     shake_signature: float | None = None
     mag_reading: float | None = None
+    # Ship-out pick check: did the photo show the product on the order? None = not checked.
+    pick_verified: bool | None = None
+    pick_notes: str = ""
+    seal_intact: bool | None = None   # factory seal as seen at ship-out (sealed consumables)
 
 
 class Order(BaseModel):
@@ -61,6 +76,7 @@ class ReturnChecks(BaseModel):
     grade: Grade | None = None
     visual_match: float | None = None      # 0..1 from stages/visual_match (local OpenCV)
     visual_inliers: list[int] = []         # [item centre, serial close-up]
+    seal_intact: bool | None = None        # sealed consumables only
 
 
 class ReturnRecord(BaseModel):
@@ -122,6 +138,11 @@ class ShipoutRequest(BaseModel):
     token: str = Field(max_length=600)
     weight_g: float | None = Field(default=None, ge=0, le=100_000)
     serial: str | None = Field(default=None, max_length=64)
+    ship_anyway: bool = False   # staff saw the pick-check warning and shipped anyway (recorded)
+
+
+class ShipoutCheckRequest(BaseModel):
+    token: str = Field(max_length=600)
 
 
 class ReturnRequest(BaseModel):
@@ -144,6 +165,8 @@ class NewItemRequest(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     price_usd: float = Field(ge=0, le=100_000)
     has_serial: bool = True
+    unit_id: UnitId | None = None
+    sealed_consumable: bool = False
     weight_g: float | None = Field(default=None, ge=0, le=100_000)
     customer_id: str = Field(default="CUST-001", pattern=ID_PATTERN)
 

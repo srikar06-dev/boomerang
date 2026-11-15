@@ -22,10 +22,15 @@ def _next_order_number(database) -> int:
 
 
 def add_item(database, name: str, price_usd: float, weight_g: float | None, has_serial: bool,
-             orders: int = 2, customer_id: str = "CUST-001") -> list[str]:
+             orders: int = 2, customer_id: str = "CUST-001", unit_id: str | None = None,
+             sealed_consumable: bool = False) -> list[str]:
     """Creates (or updates) the product and `orders` new orders for it. Returns the new order IDs."""
     sku = _sku(name)
+    if unit_id is None:
+        unit_id = "device" if has_serial else "none"
+    has_serial = unit_id != "none"      # a box label is still a code we record and compare
     product = Product(sku=sku, name=name, price_usd=price_usd, expected_weight_g=weight_g, has_serial=has_serial,
+                      unit_id=unit_id, sealed_consumable=sealed_consumable,
                       resale_value_by_grade={g: round(price_usd * s, 2) for g, s in RESALE_SHARE.items()})
     if database.products.find_one({"sku": sku}) is None:
         database.products.insert_one(product.model_dump())
