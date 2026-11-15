@@ -10,44 +10,58 @@
 <body>
 <header>
   <h1>Boomerang</h1>
-  <nav><a href="capture.html">Capture</a><a class="here" href="review.html">Review</a><a href="dashboard.html">Dashboard</a></nav>
+  <nav><a href="capture.html">Capture</a><a href="packages.html">Packages</a><a class="here" href="review.html">Review</a><a href="dashboard.html">Dashboard</a></nav>
+  <div class="keybar">
+    <input id="key" type="password" placeholder="Station key" autocomplete="off" aria-label="Station key">
+    <button id="connect">Connect</button>
+    <span class="ok hidden" id="key-ok">Connected</span>
+    <button class="change hidden" id="key-change">Change key</button>
+  </div>
 </header>
 <main>
-  <section class="card">
-    <div class="row">
-      <div><label for="key">Station key</label><input id="key" type="password" autocomplete="off"></div>
-      <div><label for="filter">Show</label>
-        <select id="filter"><option value="">All returns</option><option value="RED" selected>Held (red)</option>
-          <option value="REVIEW">Needs review</option><option value="YELLOW">Yellow</option><option value="GREEN">Green</option></select></div>
-      <div class="fixed"><button id="connect">Load</button></div>
+  <div class="page-title">
+    <h2>Review queue</h2>
+    <div class="filter">
+      <select id="filter" aria-label="Show">
+        <option value="">All returns</option><option value="RED" selected>Held (red)</option>
+        <option value="REVIEW">Needs review</option><option value="YELLOW">Yellow</option><option value="GREEN">Green</option>
+      </select>
     </div>
-    <p class="error" id="error" role="alert"></p>
-  </section>
+  </div>
+  <p class="error" id="error" role="alert"></p>
 
-  <section class="card">
-    <h2>Returns</h2>
-    <table>
-      <thead><tr><th>When</th><th>Order</th><th>Decision</th><th>Risk</th><th>Reasons</th><th>Reviewed</th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-    <p class="muted" id="empty">Enter the station key and press Load.</p>
-  </section>
+  <div class="grid split">
+    <section class="card">
+      <h2>Returns <span class="muted" id="count"></span></h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>When</th><th>Order</th><th>Decision</th><th class="num">Risk</th><th>Reviewed</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <p class="muted" id="empty">Enter the station key to load.</p>
+    </section>
 
-  <section class="card hidden" id="detail">
-    <h2 id="detail-title"></h2>
-    <div class="shots">
-      <figure><div id="ship-photos"></div><figcaption>Ship-out record</figcaption></figure>
-      <figure><div id="return-photos"></div><figcaption>Return</figcaption></figure>
-    </div>
-    <dl class="kv" id="facts"></dl>
-    <div class="row">
-      <div><label for="reviewer">Your name</label><input id="reviewer" maxlength="40" autocomplete="off"></div>
-      <div><label for="note">Note</label><input id="note" maxlength="500" autocomplete="off"></div>
-      <div class="fixed"><button id="approve">Approve refund</button></div>
-      <div class="fixed"><button id="hold" class="secondary">Keep on hold</button></div>
-    </div>
-    <p class="error" id="detail-error" role="alert"></p>
-  </section>
+    <section class="card detail-sticky" id="detail-card">
+      <p class="muted" id="detail-empty">Pick a return on the left to see its evidence.</p>
+      <div class="hidden" id="detail">
+        <h2 id="detail-title"></h2>
+        <div class="shots">
+          <figure><div id="ship-photos"></div><figcaption>Ship-out record</figcaption></figure>
+          <figure><div id="return-photos"></div><figcaption>Return</figcaption></figure>
+        </div>
+        <dl class="kv" id="facts"></dl>
+        <div class="row">
+          <div><label for="reviewer">Your name</label><input id="reviewer" maxlength="40" autocomplete="off" placeholder="Who is deciding"></div>
+          <div><label for="note">Note (optional)</label><input id="note" maxlength="500" autocomplete="off"></div>
+        </div>
+        <div class="actions">
+          <button id="approve" class="approve">Approve refund</button>
+          <button id="reject" class="reject">Reject (confirmed fraud)</button>
+          <button id="hold" class="secondary">Keep on hold</button>
+        </div>
+        <p class="error" id="detail-error" role="alert"></p>
+      </div>
+    </section>
+  </div>
 </main>
 <script src="app.js"></script>
 <script src="review.js"></script>

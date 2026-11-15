@@ -451,6 +451,67 @@ def test_us_estimate_uses_measured_rates_once_the_test_set_is_big_enough():
     assert fc["measured"] and fc["values"] == [0.9, 0.9, 0.9]
 
 
+def test_rejected_fraud_counts_as_a_trip_avoided_and_leaves_the_queue(world):
+    from app.stages import impact
+    database, s3, answer = world
+    do_shipout(s3, order="ORD-1001")
+    answer["result"] = answer["result"].model_copy(update={"scale_reading_g": 300})     # box of rocks: far too light
+    red, _ = do_return(s3, order="ORD-1001")
+    assert red.decision == "RED"
+    assert main.stats()["awaiting_review"] == 1
+    main.review(main.ReviewRequest(action="reject", reviewer="Manju", note="rocks"), return_id=red.return_id)
+    s = main.stats()
+    assert s["awaiting_review"] == 0
+    m = s["impact"]
+    assert m["fraud_rejected"] == 1 and m["trips_avoided"] == 1
+    assert m["co2_avoided_kg"] == round(impact.PARCEL_TRIP_KG_CO2, 2)
+    assert m["refunds_stopped_usd"] == 899
+
+
+# ---------- packages: everything in one place ----------
+def test_packages_lists_every_order_with_shipout_and_latest_return(world):
+    database, s3, answer = world
+    do_shipout(s3, order="ORD-1001", serial="SN00000001")
+    do_return(s3, order="ORD-1001")
+    do_shipout(s3, order="ORD-1002", serial="SN00000002", pics=(photo(7), photo(8)))
+    out = main.list_packages(q="", status="all", limit=300)
+    by_id = {p["order_id"]: p for p in out["packages"]}
+    assert len(by_id) == len(list(database.orders.find({})))          # every order, shipped or not
+    p1, p2 = by_id["ORD-1001"], by_id["ORD-1002"]
+    assert p1["state"] == "returned" and p1["return"]["decision"] in ("GREEN", "YELLOW", "RED", "REVIEW") and p1["shipout"]["serial"] == "SN00000001"
+    assert p2["state"] == "shipped" and p2["return"] is None and p2["shipout"]["photos"] == 2
+    assert out["packages"][0]["order_id"] == "ORD-1002"                 # newest activity first (shipped last)
+    # search by serial, and status filters
+    assert [p["order_id"] for p in main.list_packages(q="sn00000002", status="all", limit=300)["packages"]] == ["ORD-1002"]
+    assert {p["order_id"] for p in main.list_packages(q="", status="returned", limit=300)["packages"]} == {"ORD-1001"}
+    assert main.list_packages(q="", status="held", limit=300)["total"] == 0
+
+
+# ---------- display-only station (UNO Q) ----------
+def test_station_events_give_new_results_in_order_and_never_replay(world):
+    database, s3, answer = world
+    first = main.station_events(after=None)
+    assert first["events"] == []                                     # no history on first call
+    do_shipout(s3, order="ORD-1001")
+    r, _ = do_return(s3, order="ORD-1001")
+    out = main.station_events(after=first["cursor"])
+    kinds = [(e["type"], e["order_id"]) for e in out["events"]]
+    assert kinds == [("shipout", "ORD-1001"), ("return", "ORD-1001")]
+    assert out["events"][1]["led"] == main.LED[r.decision]
+    assert main.station_events(after=out["cursor"])["events"] == []  # same cursor: nothing new
+
+
+def test_station_events_rejects_a_bad_cursor(world):
+    with pytest.raises(HTTPException):
+        main.station_events(after="not-a-date")
+
+
+def test_station_cursor_has_no_plus_and_tolerates_a_decoded_plus(world):
+    c = main.station_events(after=None)["cursor"]
+    assert c.endswith("Z") and "+" not in c
+    assert main.station_events(after="2026-11-15T05:43:39.114680 00:00")["events"] == []   # "+" sent unencoded
+
+
 # ---------------------------------------------------------------- test-set regressions (Nov 14)
 def _cheap_shipout(s3, serial="SN00000001", weight=260):
     do_shipout(s3, order="ORD-1005", weight=weight, serial=serial)        # headphones, $149

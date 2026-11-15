@@ -10,64 +10,74 @@
 <body>
 <header>
   <h1>Boomerang</h1>
-  <nav><a href="capture.html">Capture</a><a href="review.html">Review</a><a class="here" href="dashboard.html">Dashboard</a></nav>
+  <nav><a href="capture.html">Capture</a><a href="packages.html">Packages</a><a href="review.html">Review</a><a class="here" href="dashboard.html">Dashboard</a></nav>
+  <div class="keybar">
+    <input id="key" type="password" placeholder="Station key" autocomplete="off" aria-label="Station key">
+    <button id="connect">Connect</button>
+    <span class="ok hidden" id="key-ok">Connected</span>
+    <button class="change hidden" id="key-change">Change key</button>
+  </div>
 </header>
 <main>
-  <section class="card">
-    <div class="row">
-      <div><label for="key">Station key</label><input id="key" type="password" autocomplete="off"></div>
-      <div class="fixed"><button id="connect">Load</button></div>
+  <div class="page-title">
+    <h2>Returns dashboard</h2>
+    <span class="updated" id="updated">Enter the station key to load.</span>
+  </div>
+  <p class="error" id="error" role="alert"></p>
+
+  <div class="tiles wide" id="tiles"></div>
+  <div class="section-gap"></div>
+
+  <div class="grid two">
+    <section class="card">
+      <h2>Impact: logistics and CO2 <span class="muted">from returns checked here</span></h2>
+      <div class="tiles" id="impact"></div>
+      <p class="muted" id="scale"></p>
+      <details>
+        <summary>How these are calculated</summary>
+        <ul class="notes" id="assumptions"></ul>
+      </details>
+    </section>
+
+    <div>
+      <section class="card">
+        <h2>Decisions</h2>
+        <div id="bars"></div>
+      </section>
+      <section class="card">
+        <h2>Test set <span class="muted">labelled returns</span></h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Metric</th><th>Target</th><th class="num">Result</th></tr></thead>
+          <tbody id="metrics"></tbody>
+        </table></div>
+        <p class="muted">Customers, prices and histories are synthetic demo data.</p>
+      </section>
     </div>
-    <p class="error" id="error" role="alert"></p>
-  </section>
-
-  <div class="tiles" id="tiles"></div>
+  </div>
+  <div class="section-gap"></div>
 
   <section class="card">
-    <h2>Impact: logistics and CO2</h2>
-    <div class="tiles" id="impact"></div>
-    <p class="muted" id="scale"></p>
+    <h2>If Boomerang ran across US online returns <span class="muted">per year, sourced</span></h2>
+    <p class="muted">[n] marks the source below. Catch rates switch from assumed to <b>measured</b> once our
+      labelled test set has 5+ fraud and 5+ honest returns.</p>
+    <div class="grid split">
+      <div class="table-wrap"><table>
+        <thead><tr><th>US-wide</th><th class="num">Conservative</th><th class="num">Base</th><th class="num">Optimistic</th></tr></thead>
+        <tbody id="us-results"></tbody>
+      </table></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>One retailer, per 100k returns</th><th class="num">Cons.</th><th class="num">Base</th><th class="num">Opt.</th></tr></thead>
+        <tbody id="us-per100k"></tbody>
+      </table></div>
+    </div>
     <details>
-      <summary class="muted">How these are calculated</summary>
-      <ul class="muted" id="assumptions"></ul>
-    </details>
-  </section>
-
-  <section class="card">
-    <h2>If Boomerang ran across US online returns (per year)</h2>
-    <p class="muted">Sourced US figures; [n] marks the source. Catch rates switch from assumed to
-      <b>measured</b> once our labelled test set has 5+ fraud and 5+ honest returns.</p>
-    <table>
-      <thead><tr><th></th><th>Conservative</th><th>Base</th><th>Optimistic</th></tr></thead>
-      <tbody id="us-results"></tbody>
-    </table>
-    <h3>One retailer, per 100,000 returns</h3>
-    <table>
-      <thead><tr><th></th><th>Conservative</th><th>Base</th><th>Optimistic</th></tr></thead>
-      <tbody id="us-per100k"></tbody>
-    </table>
-    <details>
-      <summary class="muted">Inputs and sources</summary>
-      <table>
-        <thead><tr><th>Input</th><th>Cons.</th><th>Base</th><th>Opt.</th><th>Source</th></tr></thead>
+      <summary>Inputs and sources</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Input</th><th class="num">Cons.</th><th class="num">Base</th><th class="num">Opt.</th><th>Source</th></tr></thead>
         <tbody id="us-inputs"></tbody>
-      </table>
-      <ol class="muted" id="us-sources"></ol>
+      </table></div>
+      <ol class="sources" id="us-sources"></ol>
     </details>
-  </section>
-
-  <section class="card">
-    <h2>Decisions</h2>
-    <div id="bars"></div>
-  </section>
-
-  <section class="card">
-    <h2>Test set (labelled returns)</h2>
-    <table>
-      <thead><tr><th>Metric</th><th>Target</th><th>Result</th></tr></thead>
-      <tbody id="metrics"></tbody>
-    </table>
-    <p class="muted">Customers, prices and return histories are synthetic demo data. Dollar figures use the seed prices and assumed shipping and handling costs.</p>
   </section>
 </main>
 <script src="app.js"></script>

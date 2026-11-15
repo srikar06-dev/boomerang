@@ -32,11 +32,16 @@ def summarise(returns: list[dict], wrong_picks: list[float | None], flagged: tup
     def released(d):
         return (d.get("review") or {}).get("action") == "approve"
 
-    acted = [d for d in returns if d.get("decision") not in flagged or released(d)]
-    skipped = [d for d in acted if d.get("disposition") in NOT_SHIPPED_BACK]
+    def rejected_(d):
+        return (d.get("review") or {}).get("action") == "reject"
+
+    # Confirmed fraud (a reviewer rejected it) is refused at the counter: that parcel never travels.
+    rejected = [d for d in returns if rejected_(d)]
+    acted = [d for d in returns if (d.get("decision") not in flagged or released(d)) and not rejected_(d)]
+    skipped = [d for d in acted if d.get("disposition") in NOT_SHIPPED_BACK] + rejected
     kept = [d for d in acted if d.get("disposition") in KEPT_IN_USE]
     disposed = [d for d in acted if d.get("disposition") == "DISPOSE"]
-    stopped = [d for d in returns if d.get("decision") == "RED" and not released(d)]
+    stopped = [d for d in returns if (d.get("decision") == "RED" and not released(d)) or rejected_(d)]
 
     co2_returns = sum(trip_co2_kg(weight(d)) for d in skipped)
     co2_picks = sum(2 * trip_co2_kg(w) for w in wrong_picks)
@@ -44,6 +49,7 @@ def summarise(returns: list[dict], wrong_picks: list[float | None], flagged: tup
         "co2_avoided_kg": round(co2_returns + co2_picks, 2),
         "trips_avoided": len(skipped) + 2 * len(wrong_picks),
         "ship_backs_avoided": len(skipped),
+        "fraud_rejected": len(rejected),
         "wrong_picks_stopped": len(wrong_picks),
         "wrong_pick_cost_avoided_usd": round(len(wrong_picks) * WRONG_PICK_COST_USD, 2),
         "kept_in_use_kg": round(sum(weight(d) for d in kept) / 1000, 2),
