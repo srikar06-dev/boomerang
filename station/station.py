@@ -156,6 +156,17 @@ def upload(token: str, slot: str, jpeg: bytes) -> None:
     print(f"  uploaded {slot} ({len(jpeg) // 1024} KB)")
 
 
+def ask_choice(prompt: str, choices: dict[str, str], default: str | None = None) -> str:
+    """Asks until the answer is one of the keys (first letter, any case). Enter = default, if any."""
+    while True:
+        raw = input(prompt).strip().lower()
+        if not raw and default is not None:
+            return choices[default]
+        if raw[:1] in choices and (len(raw) == 1 or raw in ("yes", "no", "ship", "return", "quit")):
+            return choices[raw[:1]]
+        print(f"  Please answer {' / '.join(choices)}" + (" (Enter = default)" if default else "") + ".")
+
+
 def ask_float(prompt: str) -> float | None:
     raw = input(prompt).strip()
     try:
@@ -173,11 +184,12 @@ def new_item() -> str:
     price = None
     while price is None:
         price = ask_float("  Price in USD: ")
-    print("  Where is the serial?  d = on the device itself (serial/IMEI)")
+    print("  Where is the serial?  d = on the device itself (printed serial/IMEI, or a BMR- tag stuck on it)")
     print("                        b = only on the box/packaging label")
     print("                        n = nowhere (no serial)")
-    unit_id = {"b": "box", "n": "none"}.get(input("  [D/b/n]: ").strip().lower()[:1], "device")
-    sealed = input("  Factory-sealed consumable (cream, cosmetics, food)? [y/N]: ").strip().lower() == "y"
+    unit_id = ask_choice("  [D/b/n]: ", {"d": "device", "b": "box", "n": "none"}, default="d")
+    sealed = ask_choice("  Factory-sealed consumable (cream, cosmetics, packaged food)? [y/N]: ",
+                        {"y": "yes", "n": "no"}, default="n") == "yes"
     out = call("POST", "/orders", staff=True,
                json={"name": name, "price_usd": price, "unit_id": unit_id, "sealed_consumable": sealed})
     print(f"  Created order {out['order_id']} for '{name}' (${price:g}, serial: {out['unit_id']}"
@@ -187,10 +199,10 @@ def new_item() -> str:
 
 # ---------------------------------------------------------------- one check
 def run_once(args, uno: Uno) -> None:
-    mode = input("\nShip-out or return? [s/r] (q to quit): ").strip().lower()
-    if mode == "q":
+    purpose = ask_choice("\nShip-out or return? [s/r] (q to quit): ",
+                         {"s": "shipout", "r": "return", "q": "quit"})
+    if purpose == "quit":
         raise KeyboardInterrupt
-    purpose = "shipout" if mode == "s" else "return"
     if purpose == "shipout":
         order_id = input("Order ID (e.g. ORD-1010), or press Enter to add a NEW item: ").strip().upper()
         if not order_id:
