@@ -704,6 +704,13 @@ def _wrong_picks_stopped() -> list[float | None]:
     return [w for w in orders.values() if w != "shipped-anyway"]
 
 
+@app.get("/industry")
+def industry():
+    """Public context for the dashboard: US return fraud by year, with sources. Holds no station data,
+    so it needs no key and renders before anyone signs in."""
+    return estimate.industry()
+
+
 @app.get("/stats", dependencies=[Depends(require_station)])
 def stats():
     """Dashboard numbers. Dollar figures use the seed prices and the disposition cost assumptions."""

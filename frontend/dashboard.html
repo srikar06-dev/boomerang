@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https: http:">
+<!-- blob: is for the 3D models' embedded textures, which the loader hands to the browser as in-page blob URLs. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob: https: http:">
 <title>Boomerang - Dashboard</title>
 <link rel="stylesheet" href="app.css">
 </head>
@@ -25,6 +26,39 @@
     <span class="updated" id="updated">Enter the station key to load.</span>
   </div>
   <p class="error" id="error" role="alert"></p>
+
+  <!-- Showcase: a 3D demo item on a dark stage with the figures that matter for its returns.
+       Drag to turn, pinch or scroll to zoom. Built by showcase.js; the items are procedural. -->
+  <section class="showcase" id="showcase" aria-label="Demo items in 3D">
+    <div class="rail-wrap">
+      <p class="eyebrow">Demo items</p>
+      <div class="rail" role="group" aria-label="Choose an item"></div>
+    </div>
+    <div class="stage">
+      <span class="ghost" id="sc-ghost" aria-hidden="true"></span>
+      <canvas aria-label="3D view of the selected item. Drag to rotate, pinch or scroll to zoom."></canvas>
+      <span class="hint" aria-hidden="true">Drag · pinch</span>
+      <span class="counter" id="sc-idx" aria-hidden="true"></span>
+      <p class="no-webgl-note">3D needs WebGL, which this browser has turned off. The figures still apply.</p>
+    </div>
+    <div class="specs">
+      <p class="eyebrow">Return profile</p>
+      <h3 id="sc-name"></h3>
+      <div class="spec"><span class="k">Typical weight</span><span class="v" id="sc-weight"></span></div>
+      <div class="spec"><span class="k">Price</span><span class="v accent" id="sc-price"></span></div>
+      <div class="spec"><span class="k">What we check</span><span class="v small" id="sc-check"></span></div>
+      <p class="signal" id="sc-signal"></p>
+      <p class="live hidden" id="sc-live"></p>
+    </div>
+    <!-- The size of the problem, year by year. Public figures (GET /industry), so this renders before any key. -->
+    <div class="years" id="years" aria-label="US return fraud by year">
+      <p class="eyebrow">US return fraud, by year <span class="muted">lost to fraudulent and abusive returns</span></p>
+      <div class="year-row" id="year-row"></div>
+      <p class="caveat" id="year-caveat"></p>
+      <details class="year-sources"><summary>Sources</summary><ol id="year-sources"></ol></details>
+    </div>
+  </section>
+  <div class="section-gap"></div>
 
   <div class="tiles wide" id="tiles"></div>
   <div class="section-gap"></div>
@@ -83,5 +117,6 @@
 </main>
 <script src="app.js"></script>
 <script src="dashboard.js"></script>
+<script type="module" src="showcase.js"></script>
 </body>
 </html>
