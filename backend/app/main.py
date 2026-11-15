@@ -5,6 +5,7 @@ Docs: http://localhost:8000/docs
 """
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Literal
 from pathlib import Path as FilePath
@@ -286,6 +287,15 @@ def _describes_product(seen: str | None, product_name: str | None) -> bool:
     return not a or not b or bool(a & b)
 
 
+def _safe_result(future):
+    """Result of an optional check, or None if it raised: optional checks never break a return."""
+    try:
+        return future.result()
+    except Exception:
+        log.exception("optional object check failed")
+        return None
+
+
 def _ship_item_photo(fp: dict) -> bytes | None:
     """The ship-out photo of the item, so the model compares pictures instead of guessing from a name."""
     keys = fp.get("photo_keys") or []
@@ -345,8 +355,25 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
     # Vision: evidence only. None means every attempt failed, and the policy sends that to REVIEW.
     evidence = {"product": product.get("name") or order.get("sku"), "weight_g": fp.get("weight_g"),
                 "serial": fp.get("serial"), "defects": fp.get("defects") or [], "grade": fp.get("grade")}
-    result, model_used = vision.grade(clean[0].jpeg, clean[1].jpeg, evidence, session["code"],
-                                      ship_item_jpg=_ship_item_photo(fp))
+    ship_item = _ship_item_photo(fp)
+    extra_usage: dict = {}
+    # The main check and the two unbiased object checks run in parallel (about 1 s extra, not 3).
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_grade = pool.submit(vision.grade, clean[0].jpeg, clean[1].jpeg, evidence, session["code"],
+                              ship_item_jpg=ship_item)
+        f_blind = pool.submit(vision.describe_object, clean[0].jpeg, extra_usage)
+        f_pair = pool.submit(vision.compare_objects, ship_item, clean[0].jpeg, extra_usage) if ship_item else None
+        result, model_used = f_grade.result()
+        blind = _safe_result(f_blind)
+        pair = _safe_result(f_pair) if f_pair else None
+    usage = dict(vision.last_usage) if result is not None else {}
+    for k in ("input_tokens", "output_tokens"):
+        usage[k] = usage.get(k, 0) + extra_usage.get(k, 0)
+    if extra_usage.get("cost_usd") is not None:
+        usage["cost_usd"] = round((usage.get("cost_usd") or 0.0) + extra_usage["cost_usd"], 6)
+    product_name = product.get("name") or order.get("sku")
+    blind_says_different = bool(blind) and not _describes_product(blind, product_name)
+    pair_says_different = bool(pair) and pair["same_kind"] is False
 
     # Local OpenCV cross-check against the ship-out photos. Evidence only; None if unavailable.
     visual = _visual_check(fp, clean)
@@ -399,9 +426,11 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
                               and result.same_item and result.same_unit),
         unit_provable=unit_provable,
         seal_broken=seal_broken,
-        different_item=bool(result and not result.same_item and result.confidence >= 0.6),
+        different_item=bool(result and not result.same_item and result.confidence >= 0.6)
+                       or (blind_says_different and pair_says_different),
         description_mismatch=bool(result and result.same_item
                                   and not _describes_product(result.item_seen, product.get("name"))),
+        looks_different=blind_says_different or pair_says_different,
     )
     if serial_near:
         reasons = ["SERIAL_NEAR_MATCH" if x == "SERIAL_UNREADABLE" else x for x in reasons]
@@ -422,7 +451,8 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         phash=[c.phash for c in clean],
         return_weight_g=return_weight,
         model_used=model_used,
-        model_usage=dict(vision.last_usage) if result is not None else {},
+        model_usage=usage,
+        object_check={"blind": blind, "pair": pair},
         vision=result.model_dump() if result else None,
         risk_terms=risk.terms,
         checks=ReturnChecks(

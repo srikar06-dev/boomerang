@@ -237,3 +237,68 @@ def grade(item_jpg: bytes, serial_jpg: bytes, fingerprint: dict, code: str,
             log.warning("vision: call to %s failed: %s: %s", model_id, type(e).__name__, str(e)[:200])
             continue
     return None, "none"
+
+
+
+# ------------------------------------------------------------------ unbiased object checks
+# Test set (Nov 15): with the product name and the ship-out photo in one big prompt, Nova Lite
+# described the EXPECTED item ("Power Bank") while an umbrella was held up. These two small calls
+# never see the product name, so they cannot be talked into the expected answer.
+BLIND_PROMPT = """What is the main object being shown in this photo? Ignore hands, people, the background,
+any scale or screen, and any stickers or labels. Reply with ONLY this JSON:
+{"object": "3 to 6 words, e.g. blue folding umbrella"}"""
+
+PAIR_PROMPT = """Photo A and photo B each show one main object. Ignore hands, people, the background, any
+scale or screen, and any stickers or labels; look only at the main object. Describe each, then say
+whether they are the same KIND of object (for example both are headphones), even if the angle,
+lighting or position differs. Reply with ONLY this JSON:
+{"a": "3 to 6 words", "b": "3 to 6 words", "same_kind": true}"""
+
+
+def _ask_json(images: list[bytes], prompt: str, usage: dict) -> dict | None:
+    """One short call (main model, then fallback). Adds tokens and cost to `usage`. None on failure."""
+    for model_id in (config.BEDROCK_MODEL_ID, config.BEDROCK_FALLBACK_ID):
+        try:
+            msg = {"role": "user", "content": [
+                *({"image": {"format": "jpeg", "source": {"bytes": b}}} for b in images),
+                {"text": prompt},
+            ]}
+            r = client().converse(modelId=model_id, messages=[msg],
+                                  inferenceConfig={"maxTokens": 120, "temperature": 0})
+            u = r.get("usage") or {}
+            tin, tout = int(u.get("inputTokens") or 0), int(u.get("outputTokens") or 0)
+            usage["input_tokens"] = usage.get("input_tokens", 0) + tin
+            usage["output_tokens"] = usage.get("output_tokens", 0) + tout
+            cost = estimate_cost(model_id, tin, tout)
+            if cost is not None:
+                usage["cost_usd"] = round(usage.get("cost_usd", 0.0) + cost, 6)
+            text = "".join(part.get("text", "") for part in r["output"]["message"]["content"])
+            data = json.loads(_json_object(text))
+            return data if isinstance(data, dict) else None
+        except Exception as e:
+            log.warning("vision: object check via %s failed: %s: %s", model_id, type(e).__name__, str(e)[:200])
+    return None
+
+
+def describe_object(item_jpg: bytes, usage: dict) -> str | None:
+    """Blind: what does the return photo show? The model is not told what was shipped."""
+    if config.LOCAL_MODE:
+        return None
+    data = _ask_json([item_jpg], BLIND_PROMPT, usage)
+    text = str((data or {}).get("object") or "").strip()
+    return text[:80] or None
+
+
+def compare_objects(ship_item_jpg: bytes, item_jpg: bytes, usage: dict) -> dict | None:
+    """Ship-out photo (A) vs return photo (B), with no product name. {"a", "b", "same_kind"} or None."""
+    if config.LOCAL_MODE or not ship_item_jpg:
+        return None
+    data = _ask_json([ship_item_jpg, item_jpg], PAIR_PROMPT, usage)
+    if not data:
+        return None
+    same = data.get("same_kind")
+    if isinstance(same, str):
+        same = {"true": True, "yes": True, "false": False, "no": False}.get(same.strip().lower())
+    if not isinstance(same, bool):
+        return None
+    return {"a": str(data.get("a") or "")[:80], "b": str(data.get("b") or "")[:80], "same_kind": same}

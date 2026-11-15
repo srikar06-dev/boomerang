@@ -23,6 +23,7 @@ def decide(
     seal_broken: bool = False,
     different_item: bool = False,
     description_mismatch: bool = False,
+    looks_different: bool = False,
 ) -> tuple[str, list[str]]:
     reasons = list(risk.reasons)
 
@@ -78,6 +79,11 @@ def decide(
     if decision == GREEN and description_mismatch:
         decision = YELLOW
         reasons.append("ITEM_DESCRIPTION_MISMATCH")
+    # 7d. One of the two unbiased object checks (blind description, side-by-side comparison) says
+    #     the returned object is a different kind of thing. Both saying so is DIFFERENT_ITEM (RED).
+    if looks_different and decision in (GREEN, YELLOW):
+        decision = YELLOW
+        reasons.append("ITEM_LOOKS_DIFFERENT")
     # 8. Local OpenCV check says the photos do not show the same unit, but the model says they do.
     #    Two independent readers disagree -> a person looks. Never RED on this signal alone.
     if visual_disagrees and decision in (GREEN, YELLOW):

@@ -42,6 +42,11 @@ def world(monkeypatch):
     answer = {"result": VisionResult(same_item=True, same_unit=True, confidence=0.95, code_visible=True,
                                      scale_reading_g=1400, serial_read="SN-0000 0001", grade="A")}
     monkeypatch.setattr(main.vision, "grade", lambda *a, **k: (answer["result"], "fake-model"))
+    # The unbiased object checks call Bedrock; by default they "see" nothing (no effect).
+    objects = {"blind": None, "pair": None}
+    answer["objects"] = objects
+    monkeypatch.setattr(main.vision, "describe_object", lambda item, usage: objects["blind"])
+    monkeypatch.setattr(main.vision, "compare_objects", lambda ship, item, usage: objects["pair"])
     # These synthetic ship-out/return pictures are unrelated images, so the OpenCV cross-check
     # would (correctly) flag every return. It has its own tests in test_visual.py; switch it off here.
     monkeypatch.setattr(main, "_visual_check", lambda fp, clean: None)
@@ -612,3 +617,52 @@ def test_describes_product_rules():
     assert not main._describes_product("white power bank", "Phone")
     assert not main._describes_product("blue folding umbrella", "Over-ear headphones")
     assert main._describes_product("", "Phone") and main._describes_product("a mouse", None)
+
+
+
+# ---------------------------------------------------------------- unbiased object checks (Nov 15)
+# Test set: power bank order, umbrella held up, correct tag photo and weight. The main prompt said
+# item_seen="Power Bank". The blind and side-by-side checks never see the product name.
+def _wrong_object_return(s3, answer, blind, pair):
+    _cheap_shipout(s3)                                   # ORD-1005 "Over-ear headphones"
+    answer["result"] = answer["result"].model_copy(update={
+        "item_seen": "white over-ear headphones", "serial_read": "SN00000001", "scale_reading_g": 261})
+    answer["objects"]["blind"], answer["objects"]["pair"] = blind, pair
+    return do_return(s3, order="ORD-1005")[0]
+
+
+def test_both_object_checks_say_different_is_red(world):
+    _, s3, answer = world
+    r = _wrong_object_return(s3, answer, "blue folding umbrella",
+                             {"a": "white headphones", "b": "blue umbrella", "same_kind": False})
+    assert r.decision == "RED" and "DIFFERENT_ITEM" in r.reasons
+
+
+def test_one_object_check_says_different_is_yellow(world):
+    _, s3, answer = world
+    r = _wrong_object_return(s3, answer, "blue folding umbrella", None)
+    assert r.decision == "YELLOW" and "ITEM_LOOKS_DIFFERENT" in r.reasons
+
+
+def test_pair_alone_says_different_is_yellow(world):
+    _, s3, answer = world
+    r = _wrong_object_return(s3, answer, None, {"a": "headphones", "b": "umbrella", "same_kind": False})
+    assert r.decision == "YELLOW" and "ITEM_LOOKS_DIFFERENT" in r.reasons
+
+
+def test_object_checks_agreeing_keep_honest_green(world):
+    database, s3, answer = world
+    r = _wrong_object_return(s3, answer, "white over-ear headphones",
+                             {"a": "white headphones", "b": "white headphones", "same_kind": True})
+    assert r.decision == "GREEN"
+    assert database.returns.docs[-1]["object_check"]["blind"] == "white over-ear headphones"
+
+
+def test_object_check_crash_does_not_break_the_return(world, monkeypatch):
+    _, s3, answer = world
+
+    def boom(*a, **k):
+        raise RuntimeError("bedrock down")
+    monkeypatch.setattr(main.vision, "describe_object", boom)
+    r = _wrong_object_return(s3, answer, None, None)
+    assert r.decision == "GREEN"
