@@ -268,6 +268,24 @@ def _known_photos(order: dict) -> tuple[set[str], list[str]]:
     return sha, ph
 
 
+_STOPWORDS = {"the", "and", "with", "for", "inch", "new", "item", "pro", "max", "mini"}
+
+
+def _words(text: str | None) -> set[str]:
+    return {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if len(w) > 2 and w not in _STOPWORDS}
+
+
+def _describes_product(seen: str | None, product_name: str | None) -> bool:
+    """Does the model's own description of photo 1 share a word with the product name?
+
+    A cheap cross-check of the model against itself. Nothing to compare (no description, or a
+    name with no usable words) counts as yes, so it can only ever add caution, never remove it.
+    """
+    a, b = _words(seen), _words(product_name)
+    return not a or not b or bool(a & b)
+
+
 def _ship_item_photo(fp: dict) -> bytes | None:
     """The ship-out photo of the item, so the model compares pictures instead of guessing from a name."""
     keys = fp.get("photo_keys") or []
@@ -381,6 +399,9 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
                               and result.same_item and result.same_unit),
         unit_provable=unit_provable,
         seal_broken=seal_broken,
+        different_item=bool(result and not result.same_item and result.confidence >= 0.6),
+        description_mismatch=bool(result and result.same_item
+                                  and not _describes_product(result.item_seen, product.get("name"))),
     )
     if serial_near:
         reasons = ["SERIAL_NEAR_MATCH" if x == "SERIAL_UNREADABLE" else x for x in reasons]

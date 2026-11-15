@@ -573,3 +573,42 @@ def test_prompt_with_reference_photo():
     without = build_prompt({"product": "Headphones"}, "0000")
     assert "Photo 0" in with_ref and "tape, stickers or marks" in with_ref and "item_seen" in with_ref
     assert "Photo 0" not in without and "item_seen" in without
+
+
+# ---------------------------------------------------------------- different-item regressions (Nov 15)
+def test_model_says_different_object_at_80_percent_is_red(world):
+    # Test set: headphones shipped, umbrella returned. Model: "blue folding umbrella", same_item=false, 0.8.
+    _, s3, answer = world
+    _cheap_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={
+        "item_seen": "blue folding umbrella", "same_item": False, "same_unit": False, "confidence": 0.8,
+        "serial_read": None, "label_codes": [], "scale_reading_g": 261})
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision == "RED" and "DIFFERENT_ITEM" in r.reasons
+
+
+def test_description_that_contradicts_same_item_is_not_instant(world):
+    # Test set: phone shipped, power bank returned. Model: item_seen "white power bank" but same_item=true.
+    _, s3, answer = world
+    _cheap_shipout(s3)                                         # ORD-1005 is "Over-ear headphones"
+    answer["result"] = answer["result"].model_copy(update={
+        "item_seen": "white power bank", "serial_read": "SN00000001", "scale_reading_g": 261})
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision == "YELLOW" and "ITEM_DESCRIPTION_MISMATCH" in r.reasons
+
+
+def test_matching_description_stays_green(world):
+    _, s3, answer = world
+    _cheap_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={
+        "item_seen": "white over-ear headphones", "serial_read": "SN00000001", "scale_reading_g": 261})
+    assert do_return(s3, order="ORD-1005")[0].decision == "GREEN"
+
+
+def test_describes_product_rules():
+    assert main._describes_product("white over-ear headphones", "Headphones")
+    assert main._describes_product("Power Bank", "Power bank")
+    assert main._describes_product("silver laptop", "Laptop 16-inch")
+    assert not main._describes_product("white power bank", "Phone")
+    assert not main._describes_product("blue folding umbrella", "Over-ear headphones")
+    assert main._describes_product("", "Phone") and main._describes_product("a mouse", None)
