@@ -17,7 +17,7 @@ return_weight_g is only a typed backup, the model's reading of the scale wins.
     python scripts/run_testset.py                   # uses API_URL and STATION_KEY from .env
     python scripts/run_testset.py --only f01 h03    # rerun a few cases
 
-Each run re-seeds nothing: reset first with  python scripts/seed.py  for a clean scoreboard.
+Nothing is reset: for a clean scoreboard, the demo laptop (DEMO_MODE=1) runs  python scripts/seed.py  first.
 """
 import argparse
 import csv

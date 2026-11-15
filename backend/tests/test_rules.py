@@ -85,3 +85,27 @@ def test_vision_reply_parsing_handles_fences_and_chatter():
         assert r.same_unit is False and r.grade == "B"
     with _pytest.raises(_json.JSONDecodeError):
         _json_object("I cannot see the item.")
+
+
+def test_prompt_never_reveals_the_recorded_serial_or_weight():
+    from app.stages.vision import build_prompt
+    text = build_prompt({"product": "Wireless mouse", "serial": "SN99887766", "weight_g": 95.0,
+                         "defects": ["scuff on left side"]}, "4821")
+    assert "Wireless mouse" in text and "scuff on left side" in text
+    assert "SN99887766" not in text and "95" not in text
+
+
+def test_prompt_mentions_code_only_when_required(monkeypatch):
+    from app import config
+    from app.stages.vision import build_prompt
+    monkeypatch.setattr(config, "REQUIRE_CODE", False)
+    assert "6093" not in build_prompt({}, "6093")
+    monkeypatch.setattr(config, "REQUIRE_CODE", True)
+    assert "6093" in build_prompt({}, "6093")
+
+
+def test_cost_estimate():
+    from app.stages.vision import estimate_cost
+    assert estimate_cost("us.amazon.nova-lite-v1:0", 1_000_000, 0) == 0.06
+    assert estimate_cost("us.amazon.nova-lite-v1:0", 3000, 150) == round((3000 * 0.06 + 150 * 0.24) / 1e6, 6)
+    assert estimate_cost("us.amazon.nova-pro-v1:0", 3000, 150) is None
