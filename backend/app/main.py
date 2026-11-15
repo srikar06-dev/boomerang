@@ -6,6 +6,7 @@ Docs: http://localhost:8000/docs
 import re
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 from pathlib import Path as FilePath
 
 import logging
@@ -465,6 +466,70 @@ def list_returns(decision: Decision | None = None, limit: int = Query(default=50
     keep = ("return_id", "order_id", "sku", "created_at", "decision", "risk_score", "reasons",
             "disposition", "price_usd", "review", "label")
     return {"returns": [{k: d.get(k) for k in keep} for d in docs[:limit]]}
+
+
+PACKAGE_STATUS = Literal["all", "not_shipped", "shipped", "returned", "held"]
+
+
+@app.get("/packages", dependencies=[Depends(require_station)])
+def list_packages(q: str = Query(default="", max_length=80), status: PACKAGE_STATUS = "all",
+                  limit: int = Query(default=300, ge=1, le=1000)):
+    """Every package in one place: the order, its ship-out fingerprint and its latest return.
+
+    Search with ?q= (order ID, product, SKU, serial or customer). Filter with ?status=.
+    """
+    products = {p["sku"]: p for p in db().products.find({})}
+    latest, counts = {}, {}
+    for r in db().returns.find({}):
+        oid = r["order_id"]
+        counts[oid] = counts.get(oid, 0) + 1
+        if oid not in latest or r["created_at"] > latest[oid]["created_at"]:
+            latest[oid] = r
+    needle = q.strip().lower()
+    rows = []
+    for o in db().orders.find({}):
+        product = products.get(o.get("sku")) or {}
+        fp = o.get("fingerprint") or {}
+        r = latest.get(o["order_id"])
+        review = (r or {}).get("review") or {}
+        held = bool(r) and r.get("decision") in FLAGGED and review.get("action") != "approve"
+        state = "returned" if r else ("shipped" if o.get("shipped_at") else "not_shipped")
+        row = {
+            "order_id": o["order_id"], "sku": o.get("sku"), "product": product.get("name") or o.get("sku"),
+            "price_usd": product.get("price_usd"), "customer_id": o.get("customer_id"),
+            "unit_id": unit_id_of(product) if product else None,
+            "sealed_consumable": bool(product.get("sealed_consumable")),
+            "state": state, "held": held,
+            "shipped_at": o.get("shipped_at"),
+            "shipout": {"weight_g": fp.get("weight_g"), "serial": fp.get("serial"),
+                        "photos": len(fp.get("photo_keys") or []), "pick_verified": fp.get("pick_verified"),
+                        "pick_notes": fp.get("pick_notes") or "", "seal_intact": fp.get("seal_intact"),
+                        "defects": fp.get("defects") or []} if fp else None,
+            "returns": counts.get(o["order_id"], 0),
+            "return": {"return_id": r["return_id"], "created_at": r["created_at"], "decision": r.get("decision"),
+                       "disposition": r.get("disposition"), "weight_g": r.get("return_weight_g"),
+                       "reasons": r.get("reasons") or [], "review": review.get("action"),
+                       "reviewer": review.get("reviewer")} if r else None,
+        }
+        if needle:
+            hay = " ".join(str(x or "") for x in (row["order_id"], row["product"], row["sku"], row["customer_id"],
+                                                  fp.get("serial"))).lower()
+            if needle not in hay:
+                continue
+        if status == "held" and not held:
+            continue
+        if status not in ("all", "held") and state != status:
+            continue
+        rows.append(row)
+
+    def last_activity(row):
+        t = (row["return"] or {}).get("created_at") or row["shipped_at"]
+        return t.timestamp() if t else 0
+
+    rows.sort(key=lambda r: (last_activity(r), r["order_id"]), reverse=True)
+    summary = {k: sum(1 for r in rows if r["state"] == k) for k in ("not_shipped", "shipped", "returned")}
+    summary["held"] = sum(1 for r in rows if r["held"])
+    return {"total": len(rows), "summary": summary, "packages": rows[:limit]}
 
 
 @app.post("/review/{return_id}", dependencies=[Depends(require_station)])

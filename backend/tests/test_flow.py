@@ -466,3 +466,22 @@ def test_rejected_fraud_counts_as_a_trip_avoided_and_leaves_the_queue(world):
     assert m["fraud_rejected"] == 1 and m["trips_avoided"] == 1
     assert m["co2_avoided_kg"] == round(impact.PARCEL_TRIP_KG_CO2, 2)
     assert m["refunds_stopped_usd"] == 899
+
+
+# ---------- packages: everything in one place ----------
+def test_packages_lists_every_order_with_shipout_and_latest_return(world):
+    database, s3, answer = world
+    do_shipout(s3, order="ORD-1001", serial="SN00000001")
+    do_return(s3, order="ORD-1001")
+    do_shipout(s3, order="ORD-1002", serial="SN00000002", pics=(photo(7), photo(8)))
+    out = main.list_packages(q="", status="all", limit=300)
+    by_id = {p["order_id"]: p for p in out["packages"]}
+    assert len(by_id) == len(list(database.orders.find({})))          # every order, shipped or not
+    p1, p2 = by_id["ORD-1001"], by_id["ORD-1002"]
+    assert p1["state"] == "returned" and p1["return"]["decision"] in ("GREEN", "YELLOW", "RED", "REVIEW") and p1["shipout"]["serial"] == "SN00000001"
+    assert p2["state"] == "shipped" and p2["return"] is None and p2["shipout"]["photos"] == 2
+    assert out["packages"][0]["order_id"] == "ORD-1002"                 # newest activity first (shipped last)
+    # search by serial, and status filters
+    assert [p["order_id"] for p in main.list_packages(q="sn00000002", status="all", limit=300)["packages"]] == ["ORD-1002"]
+    assert {p["order_id"] for p in main.list_packages(q="", status="returned", limit=300)["packages"]} == {"ORD-1001"}
+    assert main.list_packages(q="", status="held", limit=300)["total"] == 0

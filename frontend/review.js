@@ -103,4 +103,13 @@ $("approve").addEventListener("click", () => decide("approve"));
 $("hold").addEventListener("click", () => decide("hold"));
 $("reject").addEventListener("click", () => decide("reject"));
 $("filter").addEventListener("change", load);
-setupStaffBar(load);
+// Opened from the Packages page as review.html#<return_id>: show that return straight away.
+setupStaffBar(async () => {
+  await load();
+  const id = decodeURIComponent(window.location.hash.slice(1));
+  if (id && id !== current) {
+    $("filter").value = "";
+    await load();
+    openDetail(id);
+  }
+});

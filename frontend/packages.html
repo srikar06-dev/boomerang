@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https: http:">
+<title>Boomerang - Packages</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>Boomerang</h1>
+  <nav><a href="capture.html">Capture</a><a class="here" href="packages.html">Packages</a><a href="review.html">Review</a><a href="dashboard.html">Dashboard</a></nav>
+  <div class="keybar">
+    <input id="key" type="password" placeholder="Station key" autocomplete="off" aria-label="Station key">
+    <button id="connect">Connect</button>
+    <span class="ok hidden" id="key-ok">Connected</span>
+    <button class="change hidden" id="key-change">Change key</button>
+  </div>
+</header>
+<main>
+  <div class="page-title">
+    <h2>Packages</h2>
+    <span class="updated" id="updated">Every order: ship-out record and latest return, from the database.</span>
+  </div>
+  <p class="error" id="error" role="alert"></p>
+
+  <div class="tiles wide" id="summary"></div>
+  <div class="section-gap"></div>
+
+  <section class="card">
+    <div class="row">
+      <div><label for="q">Search</label><input id="q" placeholder="Order ID, product, serial or customer" autocomplete="off"></div>
+      <div><label for="status">Show</label>
+        <select id="status">
+          <option value="all">All packages</option><option value="shipped">Shipped, not returned</option>
+          <option value="returned">Returned</option><option value="held">Held for a person</option>
+          <option value="not_shipped">Not shipped yet</option>
+        </select></div>
+      <div class="fixed"><button id="csv" class="secondary">Download CSV</button></div>
+    </div>
+    <div class="section-gap"></div>
+    <div class="table-wrap"><table class="stack">
+      <thead><tr><th>Order</th><th>Product</th><th>Ship-out</th><th>Return</th><th>Review</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <p class="muted" id="empty">Enter the station key to load.</p>
+  </section>
+</main>
+<script src="app.js"></script>
+<script src="packages.js"></script>
+</body>
+</html>

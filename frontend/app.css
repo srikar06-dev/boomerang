@@ -143,3 +143,12 @@ ul.reasons { margin: 8px 0 0; padding-left: 20px; }
   th, td { padding: 8px 6px; }
 }
 .page-title .filter { min-width: 200px; }
+
+/* phones: a wide table becomes one card per row */
+@media (max-width: 640px) {
+  table.stack thead { display: none; }
+  table.stack tr { display: block; border-bottom: 1px solid var(--line); padding: 10px 0; }
+  table.stack td { display: grid; grid-template-columns: 76px 1fr; gap: 8px; border: 0; padding: 3px 0; }
+  table.stack td::before { content: attr(data-label); color: var(--muted); font-size: 11px; font-weight: 600;
+                           text-transform: uppercase; letter-spacing: .4px; padding-top: 2px; }
+}
