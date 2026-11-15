@@ -20,7 +20,7 @@ from . import catalog, config, local, security, seed, storage
 from .db import db
 from .models import (SLOTS, Decision, Fingerprint, NewItemRequest, ShipoutCheckRequest, unit_id_of, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
                      ReviewRequest, SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
-from .stages import authenticity, disposition, serial, vision, visual_match
+from .stages import authenticity, disposition, estimate, impact, serial, vision, visual_match
 from .stages.policy import LED, decide
 from .stages.risk import Signals, score, unit_confidence
 from .stages.sanitize import BadImage, sanitize
@@ -507,6 +507,25 @@ def _usage_summary(docs: list[dict]) -> dict:
     }
 
 
+def _wrong_picks_stopped() -> list[float | None]:
+    """Ship-outs the pick check flagged and staff did NOT ship (session never submitted).
+
+    Returns the expected weight of each, one entry per order, for the CO2 estimate.
+    """
+    orders = {}
+    for sess in db().sessions.find({"purpose": "shipout"}):
+        if (sess.get("pick_check") or {}).get("product_match") is False and not sess.get("used"):
+            orders[sess["order_id"]] = None
+    for oid in orders:
+        order = db().orders.find_one({"order_id": oid}) or {}
+        if ((order.get("fingerprint") or {}).get("pick_verified")) is False:
+            orders[oid] = "shipped-anyway"         # a later override shipped the wrong item after all
+            continue
+        product = db().products.find_one({"sku": order.get("sku")}) or {}
+        orders[oid] = product.get("expected_weight_g")
+    return [w for w in orders.values() if w != "shipped-anyway"]
+
+
 @app.get("/stats", dependencies=[Depends(require_station)])
 def stats():
     """Dashboard numbers. Dollar figures use the seed prices and the disposition cost assumptions."""
@@ -522,6 +541,14 @@ def stats():
     not_shipped = [d for d in docs if d["decision"] not in FLAGGED and not d.get("ship_back")]
     fraud = [d for d in docs if d.get("label") == "fraud"]
     honest = [d for d in docs if d.get("label") == "honest"]
+    test_set = {
+        "fraud_total": len(fraud),
+        "fraud_caught": sum(d["decision"] != "GREEN" for d in fraud),
+        "fraud_instant_refunds": sum(d["decision"] == "GREEN" for d in fraud),
+        "honest_total": len(honest),
+        "honest_flagged": sum(d["decision"] in FLAGGED for d in honest),
+        "honest_green": sum(d["decision"] == "GREEN" for d in honest),
+    }
     return {
         "total": len(docs),
         "by_decision": by_decision,
@@ -531,13 +558,9 @@ def stats():
         "shipping_avoided_usd": round(len(not_shipped) * disposition.SHIP_BACK_USD, 2),
         "awaiting_review": len(held),
         "model": _usage_summary(docs),
-        "test_set": {
-            "fraud_total": len(fraud),
-            "fraud_caught": sum(d["decision"] != "GREEN" for d in fraud),
-            "fraud_instant_refunds": sum(d["decision"] == "GREEN" for d in fraud),
-            "honest_total": len(honest),
-            "honest_flagged": sum(d["decision"] in FLAGGED for d in honest),
-        },
+        "impact": impact.summarise(docs, _wrong_picks_stopped(), FLAGGED),
+        "test_set": test_set,
+        "us_estimate": estimate.us_estimate(test_set),
     }
 
 

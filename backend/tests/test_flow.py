@@ -253,7 +253,7 @@ def test_review_queue_evidence_and_stats(world):
     assert s["by_decision"] == {"GREEN": 1, "YELLOW": 0, "RED": 1, "REVIEW": 0}
     assert s["money_held_usd"] == 899 and s["instant_refunds_usd"] == 149 and s["awaiting_review"] == 1
     assert s["test_set"] == {"fraud_total": 1, "fraud_caught": 1, "fraud_instant_refunds": 0,
-                             "honest_total": 1, "honest_flagged": 0}
+                             "honest_total": 1, "honest_flagged": 0, "honest_green": 1}
 
     after = main.review(ReviewRequest(action="approve", reviewer="Srikar", note="checked by hand"), red.return_id)
     assert after["decision"] == "RED" and after["review"]["action"] == "approve"   # original decision kept
@@ -402,3 +402,50 @@ def test_pick_check_model_failure_does_not_block(world, monkeypatch):
     assert main.shipout_check(main.ShipoutCheckRequest(token=token))["product_match"] is None
     main.shipout(ShipoutRequest(token=token, weight_g=1400, serial="SN1"))
     assert database.orders.find_one({"order_id": "ORD-1001"})["fingerprint"]["pick_verified"] is None
+
+
+# ---------- impact numbers on the dashboard ----------
+def test_impact_counts_stopped_wrong_picks_and_skipped_trips(world):
+    from app.stages import impact
+    database, s3, answer = world
+    # A wrong pick that staff refused to ship: counted once, two trips avoided.
+    answer["result"] = answer["result"].model_copy(update={"same_item": False})
+    main.shipout_check(main.ShipoutCheckRequest(token=shipout_session(s3, "ORD-1002")))
+    answer["result"] = answer["result"].model_copy(update={"same_item": True})
+    # An opened cream: disposed locally, so no trip back.
+    oid = new_item("Face cream 50 ml", 25, "none", sealed=True)
+    do_shipout(s3, order=oid, weight=60, serial=None)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": None, "seal_intact": False,
+                                                           "scale_reading_g": 60})
+    do_return(s3, order=oid)
+    m = main.stats()["impact"]
+    assert m["wrong_picks_stopped"] == 1 and m["wrong_pick_cost_avoided_usd"] == impact.WRONG_PICK_COST_USD
+    assert m["ship_backs_avoided"] == 1 and m["trips_avoided"] == 3
+    assert m["unsafe_items_kept_off_shelves"] == 1
+    expected = impact.trip_co2_kg(60) + 2 * impact.trip_co2_kg(1400)    # laptop weighs 1400 g in the seed
+    assert m["co2_avoided_kg"] == round(expected, 2)
+
+
+def test_trip_co2_uses_sourced_per_parcel_figure():
+    from app.stages import impact
+    assert impact.trip_co2_kg(5000) == impact.trip_co2_kg(None) == 1.075
+
+
+# ---------- US estimate ----------
+def test_us_estimate_matches_the_sheet_and_cites_every_source():
+    from app.stages import estimate
+    e = estimate.us_estimate({"fraud_total": 0, "honest_total": 0})
+    base = e["scenarios"]["base"]
+    # Same inputs as the team sheet: 198.4M returns, ~$1.07B fraud stopped at a 9% fraud share
+    assert base["returns_m"] == 198.4 and base["fraud_stopped_musd"] == 696.5
+    assert e["measured"] == {}
+    for i in e["inputs"]:
+        assert i["source"] is None or i["source"] in e["sources"]
+
+
+def test_us_estimate_uses_measured_rates_once_the_test_set_is_big_enough():
+    from app.stages import estimate
+    e = estimate.us_estimate({"fraud_total": 10, "fraud_caught": 9, "honest_total": 10, "honest_green": 8})
+    assert e["measured"] == {"fraud_catch": 0.9, "green_share": 0.8}
+    fc = next(i for i in e["inputs"] if i["key"] == "fraud_catch")
+    assert fc["measured"] and fc["values"] == [0.9, 0.9, 0.9]
