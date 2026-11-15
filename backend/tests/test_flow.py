@@ -448,6 +448,18 @@ def test_us_estimate_matches_the_sheet_and_cites_every_source():
         assert i["source"] is None or i["source"] in e["sources"]
 
 
+def test_industry_history_is_public_sourced_and_consistent():
+    from app.stages import estimate
+    h = estimate.industry()
+    years = [r["year"] for r in h["history"]]
+    assert years == [2021, 2022, 2023, 2024, 2025]
+    for r in h["history"]:
+        assert r["source"] in h["sources"] and r.get("also", r["source"]) in h["sources"]
+        # the dollars lost agree with the share of returns quoted, within rounding of the published figures
+        assert abs(r["returned_b"] * r["fraud_share"] - r["fraud_b"]) < 1.5
+    # no key needed: it is context, not station data (other tests prove /stats refuses without one)
+
+
 def test_us_estimate_uses_measured_rates_once_the_test_set_is_big_enough():
     from app.stages import estimate
     e = estimate.us_estimate({"fraud_total": 10, "fraud_caught": 9, "honest_total": 10, "honest_green": 8})

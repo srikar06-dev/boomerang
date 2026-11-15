@@ -30,6 +30,51 @@ SOURCES = {
 }
 SCENARIOS = ("conservative", "base", "optimistic")
 
+# ---------- the size of the problem, year by year (US retail; nobody publishes Amazon's own figures) ----------
+# Each year: merchandise returned, the share of returns deemed fraudulent or abusive, and the dollars lost to it,
+# as reported by the NRF's annual returns survey (with Appriss Retail to 2023, Happy Returns from 2024) and by
+# Appriss Retail's own benchmark from 2024. The two series differ in method from 2024 on, so both are shown.
+# Amazon's fiscal year is the calendar year.
+HISTORY_SOURCES = {
+    "nrf2021": ("NRF / Appriss Retail, Jan 2022: $761B returned in 2021; $10.30 of every $100 returned lost to fraud; "
+                "online $218B returned, $23.2B (10.6%) fraudulent",
+                "https://nrf.com/media-center/press-releases/retail-returns-increased-761-billion-2021-result-overall-sales-growth"),
+    "nrf2022": ("NRF / Appriss Retail, 2022 Consumer Returns in the Retail Industry: $816B returned; $84.9B (10.4%) fraudulent; "
+                "online $212B returned, $22.8B (10.7%) fraudulent",
+                "https://cdn.nrf.com/sites/default/files/2023-01/Customer%20Returns%20in%20the%20Retail%20Industry_2022_Final_1.pdf"),
+    "nrf2023": ("NRF / Appriss Retail, Dec 2023 (via Retail Dive): $743B returned in 2023; $101B (13.7%) lost to fraud and abuse",
+                "https://www.retaildive.com/news/retailers-took-back-743b-in-returns-last-year-with-101b-lost-to-fraud-n/703516/"),
+    "appriss2024": ("Appriss Retail / Deloitte, 2024 Consumer Returns in the Retail Industry: $685B returned; "
+                    "$103B (15.14%) lost to fraud and abuse",
+                    "https://chainstoreage.com/losses-return-fraud-and-abuse-exceed-100-billion"),
+    "nrf2024": ("NRF / Happy Returns, Dec 2024: $890B of 2024 sales projected to be returned (16.9%)",
+                "https://nrf.com/research/2024-consumer-returns-retail-industry"),
+    "nrf2025": ("NRF / Happy Returns, 2025 Retail Returns Landscape: $849.9B projected returned (15.8%); 9% of returns fraudulent",
+                "https://a-us.storyblok.com/f/1021220/x/6e22cae2b7/2025-retail-returns-landscape.pdf"),
+    "appriss2025": ("Appriss Retail, 2026 Total Retail Loss report: $706B returned in 2025; $100B (14.2%) preventable fraud and abuse",
+                    "https://www.just-style.com/news/appriss-retail-loss-2025-report/"),
+}
+# year, returned $B, fraud+abuse $B, fraud share of returns, series, source key, note
+HISTORY = [
+    {"year": 2021, "returned_b": 761.0, "fraud_b": 78.4, "fraud_share": 0.103, "series": "NRF / Appriss",
+     "source": "nrf2021", "note": "$10.30 lost per $100 returned; online returns $218B, $23.2B fraudulent"},
+    {"year": 2022, "returned_b": 816.0, "fraud_b": 84.9, "fraud_share": 0.104, "series": "NRF / Appriss",
+     "source": "nrf2022", "note": "online returns $212B, $22.8B (10.7%) fraudulent"},
+    {"year": 2023, "returned_b": 743.0, "fraud_b": 101.0, "fraud_share": 0.137, "series": "NRF / Appriss",
+     "source": "nrf2023", "note": "fraud and abuse"},
+    {"year": 2024, "returned_b": 685.0, "fraud_b": 103.0, "fraud_share": 0.1514, "series": "Appriss / Deloitte",
+     "source": "appriss2024", "note": "NRF / Happy Returns put total 2024 returns at $890B", "also": "nrf2024"},
+    {"year": 2025, "returned_b": 706.0, "fraud_b": 100.0, "fraud_share": 0.142, "series": "Appriss",
+     "source": "appriss2025", "note": "NRF / Happy Returns: $849.9B returned, 9% fraudulent", "also": "nrf2025"},
+]
+
+
+def industry() -> dict:
+    """Public, sourced context for the dashboard: US return fraud by year. No station data in here."""
+    return {"history": HISTORY, "sources": {k: {"title": t, "url": u} for k, (t, u) in HISTORY_SOURCES.items()},
+            "caveat": "US retail industry totals from the NRF and Appriss Retail surveys. Amazon does not publish "
+                      "its own return-fraud figures; its fiscal year is the calendar year."}
+
 # name: (conservative, base, optimistic, source key or None for an assumption, label)
 INPUTS = {
     "ecom_sales_b":     (1233.7, 1233.7, 1233.7, "census", "US e-commerce sales, 2025 ($B)"),

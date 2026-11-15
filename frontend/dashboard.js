@@ -122,4 +122,28 @@ function renderEstimate(e) {
     el("a", { href: e.sources[k].url, target: "_blank", rel: "noopener" }, e.sources[k].title))));
 }
 
+// US return fraud by year: public context from /industry, so it shows before the station key is entered.
+async function loadIndustry() {
+  try {
+    const h = await api("/industry");
+    const keys = Object.keys(h.sources);
+    const ref = (k) => `[${keys.indexOf(k) + 1}]`;
+    $("year-row").replaceChildren(...h.history.map((r, i) => {
+      const cell = el("div", { class: "year" },
+        el("div", { class: "y" }, String(r.year)),
+        el("div", { class: "big" }, `$${Math.round(r.fraud_b)}B`),
+        el("div", { class: "sub" }, `${(r.fraud_share * 100).toFixed(1)}% of $${Math.round(r.returned_b)}B returned`),
+        el("div", { class: "src" }, `${r.series} ${ref(r.source)}${r.also ? " " + ref(r.also) : ""}`));
+      cell.style.setProperty("--i", i);   // staggers the entrance (CSSOM, so the style-src 'self' CSP allows it)
+      return cell;
+    }));
+    $("year-caveat").textContent = h.caveat;
+    $("year-sources").replaceChildren(...keys.map((k) => el("li", {},
+      el("a", { href: h.sources[k].url, target: "_blank", rel: "noopener" }, h.sources[k].title))));
+  } catch (e) {
+    $("year-caveat").textContent = `Industry figures unavailable: ${e.message}`;
+  }
+}
+loadIndustry();
+
 setupStaffBar(load);

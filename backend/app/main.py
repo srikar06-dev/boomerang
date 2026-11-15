@@ -65,6 +65,7 @@ def health():
         "mongodb_set": bool(config.MONGODB_URI),
         "station_key_set": bool(config.STATION_KEY),
         "local_mode": config.LOCAL_MODE,     # True = no cloud, SIMULATED model
+        "demo_mode": config.DEMO_MODE,       # True = demo key is literally "demo"
     }
 
 
@@ -712,6 +713,13 @@ def _wrong_picks_stopped() -> list[float | None]:
         product = db().products.find_one({"sku": order.get("sku")}) or {}
         orders[oid] = product.get("expected_weight_g")
     return [w for w in orders.values() if w != "shipped-anyway"]
+
+
+@app.get("/industry")
+def industry():
+    """Public context for the dashboard: US return fraud by year, with sources. Holds no station data,
+    so it needs no key and renders before anyone signs in."""
+    return estimate.industry()
 
 
 @app.get("/stats", dependencies=[Depends(require_station)])
