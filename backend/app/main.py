@@ -267,6 +267,17 @@ def _known_photos(order: dict) -> tuple[set[str], list[str]]:
     return sha, ph
 
 
+def _ship_item_photo(fp: dict) -> bytes | None:
+    """The ship-out photo of the item, so the model compares pictures instead of guessing from a name."""
+    keys = fp.get("photo_keys") or []
+    if not keys:
+        return None
+    try:
+        return sanitize(storage.get_bytes(keys[0])).jpeg
+    except Exception:          # missing or unreadable: grade without the reference photo
+        return None
+
+
 def _visual_check(fp: dict, clean: list):
     """Compares this return's photos with the ship-out photos. Any problem -> None (no effect)."""
     keys = fp.get("photo_keys") or []
@@ -315,13 +326,15 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
     # Vision: evidence only. None means every attempt failed, and the policy sends that to REVIEW.
     evidence = {"product": product.get("name") or order.get("sku"), "weight_g": fp.get("weight_g"),
                 "serial": fp.get("serial"), "defects": fp.get("defects") or [], "grade": fp.get("grade")}
-    result, model_used = vision.grade(clean[0].jpeg, clean[1].jpeg, evidence, session["code"])
+    result, model_used = vision.grade(clean[0].jpeg, clean[1].jpeg, evidence, session["code"],
+                                      ship_item_jpg=_ship_item_photo(fp))
 
     # Local OpenCV cross-check against the ship-out photos. Evidence only; None if unavailable.
     visual = _visual_check(fp, clean)
 
     price = float(product.get("price_usd") or 0.0)
     ship_weight = fp.get("weight_g")
+    serial_near = False
     if result is None:
         return_weight = req.weight_g
         # No model evidence: neutral unit/serial values. The policy sends model_ok=False to REVIEW.
@@ -332,8 +345,10 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         return_weight = result.scale_reading_g if result.scale_reading_g is not None else req.weight_g
         serial_expected = bool(product.get("has_serial", True) and fp.get("serial"))
         # Tolerant compare: look-alike characters, one misread, and every code on the label count.
-        serial_match = (serial.matches(fp.get("serial"), [result.serial_read, *result.label_codes])
-                        if serial_expected else None)
+        reads = [result.serial_read, *result.label_codes]
+        serial_match = serial.matches(fp.get("serial"), reads) if serial_expected else None
+        if serial_match is False and serial.near_miss(fp.get("serial"), reads):
+            serial_match, serial_near = None, True      # likely a misread: "can't tell", capped at YELLOW
         damage = 0.0 if not result.new_damage else (1.0 if result.grade == "D" else 0.5)
         signals = Signals(
             shipout_weight_g=ship_weight,
@@ -366,6 +381,8 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         unit_provable=unit_provable,
         seal_broken=seal_broken,
     )
+    if serial_near:
+        reasons = ["SERIAL_NEAR_MATCH" if x == "SERIAL_UNREADABLE" else x for x in reasons]
     plan = disposition.choose(result.grade if result else None,
                               product.get("resale_value_by_grade") or {}, decision,
                               opened_consumable=seal_broken)
