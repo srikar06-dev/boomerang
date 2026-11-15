@@ -208,6 +208,37 @@ def shipout(req: ShipoutRequest):
 # --------------------------------------------------------------------------------------
 # Return: check the item against its ship-out fingerprint and decide
 # --------------------------------------------------------------------------------------
+def _edit_distance(a: str, b: str) -> int:
+    """Levenshtein distance: single-character insertions, deletions and substitutions."""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+SERIAL_NEAR_MISS = 2   # up to 2 wrong characters = probably a misread, not a different unit
+
+
+def _compare_serial(read: str | None, recorded: str | None) -> tuple[bool | None, str | None]:
+    """True = same, False = clearly different unit, None = can't tell (unreadable, or a near miss).
+
+    A near miss (a character or two off, e.g. handwritten U read as V) is far more likely a misread
+    than a swap. It must not count as a swap (hard RED), and it can never be an instant refund either:
+    None caps the decision at YELLOW.
+    """
+    a, b = _norm_serial(read), _norm_serial(recorded)
+    if not (a and b):
+        return None, None
+    if a == b:
+        return True, None
+    if _edit_distance(a, b) <= SERIAL_NEAR_MISS:
+        return None, f"SERIAL_NEAR_MATCH (read {a}, recorded {b})"
+    return False, None
+
+
 def _norm_serial(text: str | None) -> str | None:
     """Uppercase letters and digits only, so 'sn-12 34' and 'SN1234' compare equal."""
     cleaned = re.sub(r"[^A-Z0-9]", "", (text or "").upper())
@@ -279,6 +310,7 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
 
     price = float(product.get("price_usd") or 0.0)
     ship_weight = fp.get("weight_g")
+    serial_note = None
     if result is None:
         return_weight = req.weight_g
         # No model evidence: neutral unit/serial values. The policy sends model_ok=False to REVIEW.
@@ -288,8 +320,8 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         # Prefer the scale as read from the photo; the typed number is only a backup.
         return_weight = result.scale_reading_g if result.scale_reading_g is not None else req.weight_g
         serial_expected = bool(product.get("has_serial", True) and fp.get("serial"))
-        read = _norm_serial(result.serial_read)
-        serial_match = None if not (serial_expected and read) else read == _norm_serial(fp.get("serial"))
+        serial_match, serial_note = (_compare_serial(result.serial_read, fp.get("serial"))
+                                     if serial_expected else (None, None))
         damage = 0.0 if not result.new_damage else (1.0 if result.grade == "D" else 0.5)
         signals = Signals(
             shipout_weight_g=ship_weight,
@@ -315,6 +347,8 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         visual_disagrees=bool(result and visual and visual.looks_different
                               and result.same_item and result.same_unit),
     )
+    if serial_note:
+        reasons.append(serial_note)
     plan = disposition.choose(result.grade if result else None,
                               product.get("resale_value_by_grade") or {}, decision)
 

@@ -282,3 +282,28 @@ def test_model_usage_is_recorded_and_summarised(world, monkeypatch):
     do_return(s3)
     assert database.returns.docs[0]["model_usage"]["input_tokens"] == 3000
     assert main.stats()["model"] == {"calls": 1, "avg_cost_usd": 0.000209, "median_seconds": 2.5}
+
+
+# ---------------------------------------------------------------- serial misreads
+def test_serial_near_miss_is_yellow_not_red(world):
+    _, s3, answer = world
+    do_shipout(s3, order="ORD-1005", weight=260, serial="BMR-UYTUJ")      # headphones, $149
+    answer["result"] = answer["result"].model_copy(update={"serial_read": "BMR-VYTUJ", "scale_reading_g": 262})
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision == "YELLOW"
+    assert any(x.startswith("SERIAL_NEAR_MATCH") for x in r.reasons)
+
+
+def test_clearly_different_serial_is_still_red(world):
+    _, s3, answer = world
+    do_shipout(s3, order="ORD-1005", weight=260, serial="BMR-UYTUJ")
+    answer["result"] = answer["result"].model_copy(update={"serial_read": "BMR-9DUHR", "scale_reading_g": 262})
+    assert do_return(s3, order="ORD-1005")[0].decision == "RED"
+
+
+def test_serial_compare_rules():
+    assert main._compare_serial("sn-1234 5678", "SN12345678") == (True, None)
+    assert main._compare_serial(None, "SN12345678") == (None, None)
+    assert main._compare_serial("SN12345679", "SN12345678")[0] is None
+    assert main._compare_serial("XQ99887766", "SN12345678") == (False, None)
+    assert main._edit_distance("BMRUYTUJ", "BMRVYTUJ") == 1
