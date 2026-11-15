@@ -284,7 +284,13 @@ def _describes_product(seen: str | None, product_name: str | None) -> bool:
     name with no usable words) counts as yes, so it can only ever add caution, never remove it.
     """
     a, b = _words(seen), _words(product_name)
-    return not a or not b or bool(a & b)
+    if not a or not b or a & b:
+        return True
+    # Joined vs split words: "Mousepad" vs "mouse pad", "Powerbank" vs "power bank".
+    def squash(t):
+        return re.sub(r"[^a-z0-9]", "", (t or "").lower())
+    joined_seen, joined_name = squash(seen), squash(product_name)
+    return any(w in joined_seen for w in b) or any(w in joined_name for w in a)
 
 
 def _safe_result(future):
@@ -422,8 +428,12 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         code_visible=(not config.REQUIRE_CODE) or bool(result and result.code_visible),
         image_reused=image_reused,
         price_usd=price,
+        # OpenCV matches pixels, so a phone photo vs a webcam ship-out photo of the SAME item often
+        # scores low (phone test, Nov 15: 3 honest returns sent to REVIEW). When the side-by-side
+        # model check positively says "same kind of object", OpenCV alone no longer escalates.
         visual_disagrees=bool(result and visual and visual.looks_different
-                              and result.same_item and result.same_unit),
+                              and result.same_item and result.same_unit
+                              and not (pair and pair["same_kind"] is True)),
         unit_provable=unit_provable,
         seal_broken=seal_broken,
         different_item=bool(result and not result.same_item and result.confidence >= 0.6)
