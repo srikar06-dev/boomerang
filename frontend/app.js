@@ -54,7 +54,7 @@ function when(iso) { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleS
 function show(node, on) { node.classList.toggle("hidden", !on); }
 
 // Staff pages: the station key lives in a small chip in the top bar. Typed once per browser tab
-// (sessionStorage), then shown as "Connected" with a Change button.
+// (sessionStorage), then shown as "Key saved" with a Change button.
 function setupStaffBar(onReady) {
   const key = document.getElementById("key");
   const connect = document.getElementById("connect");
