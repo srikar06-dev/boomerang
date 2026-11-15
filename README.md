@@ -69,3 +69,37 @@ conspicuously posted; restocking fees must be disclosed, A.R.S. § 44-1377). Our
 - No restocking fees.
 
 Not legal advice: a real launch needs each state's posting rules (e.g. New York, California) reviewed.
+
+## UNO Q counter station (phone camera + board lights)
+
+No laptop at the counter: a **phone** takes the photos on the Capture page, the **Arduino UNO Q**
+shows the verdict (8x13 matrix icon, LEDs, buzzer). The backend runs anywhere the board can reach.
+
+```
+phone (Capture page) --photos--> backend (FastAPI, Nova, S3, Mongo) <--"anything new?"-- UNO Q (Wi-Fi)
+                                                                                        |- matrix: check / dash / cross
+                                                                                        |- LEDs D8 green, D9 yellow, D10 red
+                                                                                        '- buzzer D11
+```
+
+| UNO Q pin | Part |
+| --- | --- |
+| D8 → 220 Ω → LED → GND | green |
+| D9 → 220 Ω → LED → GND | yellow |
+| D10 → 220 Ω → LED → GND | red |
+| D11 → buzzer + , buzzer − → GND | buzzer (set `BUZZER_PASSIVE = true` in the sketch for a passive one) |
+
+The UNO Q header pins are 3.3 V, so the LEDs are a little dimmer than on a 5 V Uno.
+
+1. First-time board setup in **Arduino App Lab** over USB-C (sets the board's Wi-Fi and password).
+2. App Lab → **Create new app** → `boomerang_station`. Replace `sketch/sketch.ino` and `python/main.py`
+   with the files in `unoq/boomerang_station/`.
+3. In the board's copy of `main.py` set `API_URL` (backend address) and `STATION_KEY`. **Never commit the key.**
+4. Press **Run**. Self-test: check → dash → cross, then the small diamond means "ready". A `?` means the
+   board cannot reach the backend (wrong URL/key, Wi-Fi down).
+5. On the phone open `<backend>/app/capture.html`, pick the mode, type the order ID and take the two photos.
+   The board lights up within ~2 s of the decision. Ship-outs flash green (yellow if shipped after a pick warning).
+
+The board asks `GET /station/events?after=<cursor>` (staff key). The first call returns only a cursor, so
+old results are never replayed. Live camera on the phone needs HTTPS (a tunnel or hosting); over plain
+HTTP the page falls back to the phone's photo button, which works too.

@@ -485,3 +485,22 @@ def test_packages_lists_every_order_with_shipout_and_latest_return(world):
     assert [p["order_id"] for p in main.list_packages(q="sn00000002", status="all", limit=300)["packages"]] == ["ORD-1002"]
     assert {p["order_id"] for p in main.list_packages(q="", status="returned", limit=300)["packages"]} == {"ORD-1001"}
     assert main.list_packages(q="", status="held", limit=300)["total"] == 0
+
+
+# ---------- display-only station (UNO Q) ----------
+def test_station_events_give_new_results_in_order_and_never_replay(world):
+    database, s3, answer = world
+    first = main.station_events(after=None)
+    assert first["events"] == []                                     # no history on first call
+    do_shipout(s3, order="ORD-1001")
+    r, _ = do_return(s3, order="ORD-1001")
+    out = main.station_events(after=first["cursor"])
+    kinds = [(e["type"], e["order_id"]) for e in out["events"]]
+    assert kinds == [("shipout", "ORD-1001"), ("return", "ORD-1001")]
+    assert out["events"][1]["led"] == main.LED[r.decision]
+    assert main.station_events(after=out["cursor"])["events"] == []  # same cursor: nothing new
+
+
+def test_station_events_rejects_a_bad_cursor(world):
+    with pytest.raises(HTTPException):
+        main.station_events(after="not-a-date")

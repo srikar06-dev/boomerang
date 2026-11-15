@@ -468,6 +468,48 @@ def list_returns(decision: Decision | None = None, limit: int = Query(default=50
     return {"returns": [{k: d.get(k) for k in keep} for d in docs[:limit]]}
 
 
+def _utc(t):
+    """Mongo hands back naive UTC datetimes; make every timestamp timezone-aware before comparing."""
+    if t is None:
+        return None
+    if isinstance(t, str):
+        t = datetime.fromisoformat(t.replace("Z", "+00:00"))
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+@app.get("/station/events", dependencies=[Depends(require_station)])
+def station_events(after: str | None = Query(default=None, max_length=40)):
+    """For a display-only station (UNO Q): what happened since `after`?
+
+    Call with no `after` first: you get a cursor and no events (old history is not replayed).
+    Then pass the returned cursor each time. Events are oldest first, so lights show in order.
+    """
+    now = datetime.now(timezone.utc)
+    if not after:
+        return {"cursor": now.isoformat(), "events": []}
+    try:
+        since = _utc(after)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="after must be an ISO timestamp")
+    events = []
+    for r in db().returns.find({}):
+        t = _utc(r.get("created_at"))
+        if t and t > since:
+            events.append({"type": "return", "at": t, "order_id": r["order_id"], "decision": r.get("decision"),
+                           "led": LED.get(r.get("decision"), "L:Y"), "disposition": r.get("disposition"),
+                           "reasons": (r.get("reasons") or [])[:3]})
+    for o in db().orders.find({}):
+        t = _utc(o.get("shipped_at"))
+        if t and t > since:
+            pick = (o.get("fingerprint") or {}).get("pick_verified")
+            events.append({"type": "shipout", "at": t, "order_id": o["order_id"], "pick_verified": pick,
+                           "led": "L:Y" if pick is False else "L:G"})
+    events.sort(key=lambda e: e["at"])
+    cursor = events[-1]["at"] if events else since
+    return {"cursor": cursor.isoformat(),
+            "events": [{**e, "at": e["at"].isoformat()} for e in events[:20]]}
+
+
 PACKAGE_STATUS = Literal["all", "not_shipped", "shipped", "returned", "held"]
 
 
