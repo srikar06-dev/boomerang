@@ -3,9 +3,9 @@
 Compares what the item can be resold for (by grade) with what it costs to bring it back.
 Cost figures are demo assumptions and are returned with the answer so the dashboard can show them.
 """
-SHIP_BACK_USD = 9.0      # assumed return-shipping label
-HANDLING_USD = 4.0       # assumed warehouse receive + inspect
-REFURB_USD = 15.0        # assumed clean/repair for grade C
+SHIP_BACK_USD = 10.0     # return label: industry average $8-12 per item (midpoint), see estimate.SOURCES["opensend"]
+HANDLING_USD = 4.0       # inspection/grading $2-5 + restocking $1-3 per return, see estimate.SOURCES["clickpost"]
+REFURB_USD = 15.0        # ASSUMED clean/repair for grade C (no public benchmark)
 
 
 def choose(grade: str | None, resale_value_by_grade: dict, decision: str, opened_consumable: bool = False) -> dict:
