@@ -25,6 +25,9 @@ Fill in these fields:
 - same_unit: false if anything suggests this is a different unit or model. Otherwise true.
 - confidence: 0 to 1, how sure you are about same_item and same_unit together.
 - serial_read: the serial exactly as printed in photo 2, or null if you cannot read every character. Never guess.
+  If the label shows several codes, use the one marked Serial or S/N, or a store tag that starts with "BMR-".
+  Ignore model and part numbers (for example the ones marked Model or P/N). Copy every character in order,
+  including any prefix and dash; never drop, add or reorder characters.
 - label_codes: EVERY code or number printed on the label in photo 2 (serial, model, FNSKU, barcode text), each exactly as printed. The label may be rotated or upside down; read it the right way round. Empty list if none.
 - scale_reading_g: the number on the scale display in grams (convert oz or lb to grams), or null if you cannot read it. Never estimate from the item's size.
 - code_visible: {code_rule}
