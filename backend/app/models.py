@@ -90,6 +90,7 @@ class ReturnRecord(BaseModel):
     return_weight_g: float | None = None
     model_used: str = "none"
     model_usage: dict = {}            # tokens, seconds and estimated cost of the model call
+    object_check: dict = {}           # unbiased checks: {"blind": "...", "pair": {"a","b","same_kind"}}
     vision: dict | None = None        # the model's raw answer, kept as evidence
     risk_terms: dict = {}
     checks: ReturnChecks = ReturnChecks()

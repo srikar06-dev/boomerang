@@ -144,3 +144,31 @@ def test_vision_reply_still_rejects_missing_core_fields():
     from app.stages.vision import VisionResult
     with _pytest.raises(ValidationError):
         VisionResult(**{"confidence": 0.9})                  # no same_item / same_unit: unusable
+
+
+def test_object_check_helpers_parse_and_fail_safely(monkeypatch):
+    from app import config
+    from app.stages import vision
+
+    class FakeClient:
+        def __init__(self, replies):
+            self.replies = list(replies)
+
+        def converse(self, **kw):
+            text = self.replies.pop(0)
+            if isinstance(text, Exception):
+                raise text
+            return {"usage": {"inputTokens": 1000, "outputTokens": 20},
+                    "output": {"message": {"content": [{"text": text}]}}}
+
+    monkeypatch.setattr(config, "LOCAL_MODE", False)
+    monkeypatch.setattr(config, "BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
+    usage = {}
+    monkeypatch.setattr(vision, "client", lambda: FakeClient(['```json\n{"object": "blue folding umbrella"}\n```']))
+    assert vision.describe_object(b"x", usage) == "blue folding umbrella" and usage["input_tokens"] == 1000
+    monkeypatch.setattr(vision, "client", lambda: FakeClient(['{"a": "headphones", "b": "umbrella", "same_kind": "false"}']))
+    assert vision.compare_objects(b"a", b"b", usage) == {"a": "headphones", "b": "umbrella", "same_kind": False}
+    monkeypatch.setattr(vision, "client", lambda: FakeClient([RuntimeError("throttled"), "not json"]))
+    assert vision.describe_object(b"x", usage) is None
+    monkeypatch.setattr(vision, "client", lambda: FakeClient(['{"a": "x", "b": "y"}']))
+    assert vision.compare_objects(b"a", b"b", usage) is None          # no same_kind: no effect
