@@ -110,12 +110,19 @@ $("retake").addEventListener("click", () => {
   refresh();
 });
 
+const SHOOT_LABELS = ["Take photo 1: item + scale", "Take photo 2: serial label"];
+
 function refresh() {
   const n = state.blobs.length;
   $("hint").textContent = HINTS[n];
-  $("shoot").disabled = n >= 2;
-  $("retake").disabled = n === 0;
+  if (n < 2) $("shoot").textContent = SHOOT_LABELS[n];
+  show($("shoot"), n < 2);               // after both photos the bar shows Submit instead
+  show($("submit"), n >= 2);
   $("submit").disabled = n < 2;
+  $("retake").disabled = n === 0;
+  SLOTS.forEach((s, i) => show($("slot-" + s), i >= n));
+  // keep the next action in view on a phone (the bar is also sticky at the bottom)
+  if (n > 0) requestAnimationFrame(() => $("actionbar").scrollIntoView({ behavior: "smooth", block: "end" }));
 }
 
 $("submit").addEventListener("click", async () => {

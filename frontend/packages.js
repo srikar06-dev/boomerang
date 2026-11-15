@@ -111,4 +111,34 @@ let typing = null;
 $("q").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 300); });
 $("status").addEventListener("change", load);
 $("csv").addEventListener("click", downloadCsv);
+// New item: POST /orders creates a product + one order, so staff can ship it out right away.
+async function createItem() {
+  const err = document.getElementById("ni-error"), done = document.getElementById("ni-done");
+  const btn = document.getElementById("ni-create");
+  err.textContent = ""; show(done, false);
+  const name = document.getElementById("ni-name").value.trim();
+  const price = parseFloat(document.getElementById("ni-price").value);
+  const weightText = document.getElementById("ni-weight").value.trim();
+  if (!name) { err.textContent = "Enter an item name."; return; }
+  if (!(price >= 0)) { err.textContent = "Enter a price."; return; }
+  const body = { name, price_usd: price, has_serial: document.getElementById("ni-serial").value === "yes" };
+  if (weightText) body.weight_g = parseFloat(weightText);
+  btn.disabled = true;
+  try {
+    const out = await api("/orders", { method: "POST", body, staff: true });
+    done.replaceChildren("Created ", el("strong", {}, out.order_id), ` for ${out.name}. `,
+      el("a", { href: "capture.html" }, "Ship it out on Capture"));
+    show(done, true);
+    document.getElementById("ni-name").value = "";
+    document.getElementById("ni-price").value = "";
+    document.getElementById("ni-weight").value = "";
+    load();
+  } catch (e) {
+    err.textContent = e.message; keyProblem(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById("ni-create").addEventListener("click", createItem);
+
 setupStaffBar(load);

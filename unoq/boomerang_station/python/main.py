@@ -84,7 +84,8 @@ def loop():
         for i, e in enumerate(out["events"]):
             if i:
                 time.sleep(3)                      # several at once: show each for a moment
-            Bridge.call("show", CODE.get(e["led"], 2))
+            code = 5 if e.get("decision") == "REVIEW" else CODE.get(e["led"], 2)   # REVIEW = circle
+            Bridge.call("show", code)
             what = e["decision"] if e["type"] == "return" else ("ship-out OK" if e.get("pick_verified") is not False
                                                                 else "ship-out after pick warning")
             print(f'{e["type"]:8} {e["order_id"]:10} {what}  {", ".join(e.get("reasons") or [])}')

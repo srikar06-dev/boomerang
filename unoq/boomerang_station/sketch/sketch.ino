@@ -1,6 +1,7 @@
 // Boomerang counter station - Arduino UNO Q, MCU side (STM32).
 // Python on the Linux side calls show(code) over the Bridge:
-//   0 = ready (idle)   1 = GREEN   2 = YELLOW / review   3 = RED   4 = cannot reach the backend
+//   0 = ready (idle)   1 = GREEN (tick)   2 = YELLOW (X)   3 = RED (X)   4 = cannot reach the backend (?)   5 = REVIEW (circle)
+// The matrix is one colour only; the colour comes from the RGB LED and the onboard LED3.
 // Onboard 8x13 matrix shows an icon, the onboard RGB LED (LED3) shows the colour, and optionally:
 //   - ONE external RGB LED: green leg -> 220 ohm -> D8, red leg -> 220 ohm -> D10 (yellow = red + green),
 //     longest (common) leg to GND (common cathode) or 3.3V (common anode, set RGB_COMMON_ANODE = true), or
@@ -13,7 +14,7 @@ const int PIN_G = 8, PIN_Y = 9, PIN_R = 10, PIN_BUZ = 11;
 const bool RGB_LED = true;                    // one RGB LED on D8 (green) + D10 (red); false = 3 separate LEDs
 const bool RGB_COMMON_ANODE = false;          // true if the RGB LED's long leg goes to 3.3V (LOW = on)
 const bool BUZZER_PASSIVE = false;            // true for a passive buzzer (no built-in oscillator)
-const unsigned long HOLD_MS = 8000;           // keep a verdict on screen this long, then back to "ready"
+const unsigned long HOLD_MS = 15000;          // keep a verdict on screen this long, then back to "ready"
 
 Arduino_LED_Matrix matrix;
 
@@ -23,6 +24,7 @@ uint8_t DASH[104] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 uint8_t CROSS[104] = {0,0,1,1,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,0,0,1,1,0,1,1,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,1,1,0,1,1,0,0,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0};
 uint8_t BOX[104] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 uint8_t QUESTION[104] = {0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0};
+uint8_t CIRCLE[104] = {0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0};
 
 volatile int pending = -1;          // set by the Bridge callback, handled in loop()
 unsigned long shownAt = 0;
@@ -51,7 +53,7 @@ void onboard(bool r, bool g) {                 // onboard RGB LED3 is active-low
 }
 
 void lights(int code) {
-  bool green = code == 1, yellow = code == 2 || code == 4, red = code == 3;
+  bool green = code == 1, yellow = code == 2 || code == 4 || code == 5, red = code == 3;
   if (RGB_LED) {                               // yellow = red + green together
     ext(PIN_G, green || yellow);
     ext(PIN_R, red || yellow);
@@ -61,16 +63,17 @@ void lights(int code) {
   onboard(red || yellow, green || yellow);
   switch (code) {
     case 1: matrix.draw(CHECK); break;
-    case 2: matrix.draw(DASH); break;
-    case 3: matrix.draw(CROSS); break;
+    case 2: matrix.draw(CROSS); break;      // YELLOW: X + yellow light
+    case 3: matrix.draw(CROSS); break;      // RED: X + red light
     case 4: matrix.draw(QUESTION); break;
+    case 5: matrix.draw(CIRCLE); break;     // REVIEW: circle + yellow light
     default: matrix.draw(BOX); break;
   }
   static const unsigned long GREEN_B[] = {80};
   static const unsigned long YELLOW_B[] = {120, 120, 120};
   static const unsigned long RED_B[] = {700};
   if (code == 1) setBeep(GREEN_B, 1);
-  else if (code == 2) setBeep(YELLOW_B, 3);
+  else if (code == 2 || code == 5) setBeep(YELLOW_B, 3);
   else if (code == 3) setBeep(RED_B, 1);
   current = code;
   shownAt = millis();
