@@ -26,6 +26,21 @@
   </div>
   <p class="error" id="error" role="alert"></p>
 
+  <section class="card">
+    <h2>New item</h2>
+    <p class="muted">Create an order for one of your own items, then ship it out on the Capture page with the order ID.</p>
+    <div class="row">
+      <div><label for="ni-name">Item name</label><input id="ni-name" maxlength="60" placeholder="Wireless mouse" autocomplete="off"></div>
+      <div><label for="ni-price">Price (USD)</label><input id="ni-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="25"></div>
+      <div><label for="ni-weight">Weight (g, optional)</label><input id="ni-weight" type="number" min="0" step="1" inputmode="numeric" placeholder="90"></div>
+      <div><label for="ni-serial">Serial or tag?</label>
+        <select id="ni-serial"><option value="yes">Yes</option><option value="no">No</option></select></div>
+      <div class="fixed"><button id="ni-create">Create order</button></div>
+    </div>
+    <p class="error" id="ni-error" role="alert"></p>
+    <p class="hidden" id="ni-done"></p>
+  </section>
+
   <div class="tiles wide" id="summary"></div>
   <div class="section-gap"></div>
 

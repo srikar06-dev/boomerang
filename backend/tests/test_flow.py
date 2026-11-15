@@ -678,3 +678,35 @@ def test_object_check_crash_does_not_break_the_return(world, monkeypatch):
     monkeypatch.setattr(main.vision, "describe_object", boom)
     r = _wrong_object_return(s3, answer, None, None)
     assert r.decision == "GREEN"
+
+
+# ---------------------------------------------------------------- phone vs webcam (Nov 15, 10:30)
+def test_opencv_alone_does_not_escalate_when_side_by_side_says_same(world, monkeypatch):
+    # Phone return of the umbrella: every model check said same item; OpenCV scored 0.175.
+    _, s3, answer = world
+    _cheap_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": "SN00000001", "scale_reading_g": 261,
+                                                           "item_seen": "white over-ear headphones"})
+    answer["objects"]["blind"] = "white over the ear headphones"
+    answer["objects"]["pair"] = {"a": "white headphones", "b": "white headphones", "same_kind": True}
+    low = main.visual_match.VisualMatch(score=0.175, item_inliers=0, serial_inliers=7)
+    monkeypatch.setattr(main, "_visual_check", lambda fp, clean: low)
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision == "GREEN" and "VISUAL_MISMATCH" not in r.reasons
+
+
+def test_opencv_still_counts_when_side_by_side_is_unavailable(world, monkeypatch):
+    _, s3, answer = world
+    _cheap_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": "SN00000001", "scale_reading_g": 261})
+    low = main.visual_match.VisualMatch(score=0.175, item_inliers=0, serial_inliers=7)
+    monkeypatch.setattr(main, "_visual_check", lambda fp, clean: low)
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision == "REVIEW" and "VISUAL_MISMATCH" in r.reasons
+
+
+def test_describes_product_handles_joined_words():
+    assert main._describes_product("black mouse pad with white and yellow stripes", "Mousepad")
+    assert main._describes_product("white power bank", "Powerbank")
+    assert main._describes_product("black smartwatch", "Smart watch")
+    assert not main._describes_product("white watch with black face", "Travel Pillow")
