@@ -103,3 +103,22 @@ The UNO Q header pins are 3.3 V, so the LEDs are a little dimmer than on a 5 V U
 The board asks `GET /station/events?after=<cursor>` (staff key). The first call returns only a cursor, so
 old results are never replayed. Live camera on the phone needs HTTPS (a tunnel or hosting); over plain
 HTTP the page falls back to the phone's photo button, which works too.
+
+### Run everything on the UNO Q (no laptop, power bank only)
+
+The board runs Debian 13 (arm64), so it can host the whole backend and the web pages; Nova, S3 and
+MongoDB are cloud services it reaches over Wi-Fi.
+
+1. One time, over USB-C in App Lab: name the board, set its password and Wi-Fi (at the venue use a
+   phone hotspot - campus Wi-Fi logins do not work for a board).
+2. From the laptop: `ssh arduino@<board>.local`, then `git clone https://github.com/srikar06-dev/boomerang.git`.
+3. From the laptop: `scp .env arduino@<board>.local:~/boomerang/.env` (secrets never go through git).
+4. On the board: `cd ~/boomerang && bash unoq/install_backend.sh` - installs the backend in `.venv` and a
+   `boomerang` systemd service that starts at every boot on port 8000.
+5. App Lab: create the `boomerang_station` app from `unoq/boomerang_station/`, keep `API_URL = "auto"`
+   (finds the backend on the same board), set `STATION_KEY`, Run, then **Run at startup** (▼ next to Run).
+6. Phones on the same Wi-Fi open `http://<board-ip>:8000/app/capture.html`. For a public HTTPS link
+   (judges, live phone camera) add Tailscale Funnel on the board.
+
+Power on → Wi-Fi → backend service → station app: about a minute from plugging in the power bank.
+Logs: `journalctl -u boomerang -f`. Restart: `sudo systemctl restart boomerang`.

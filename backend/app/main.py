@@ -473,7 +473,8 @@ def _utc(t):
     if t is None:
         return None
     if isinstance(t, str):
-        t = datetime.fromisoformat(t.replace("Z", "+00:00"))
+        # A "+" in an unencoded query string arrives as a space; accept both, and "Z" for UTC.
+        t = datetime.fromisoformat(t.strip().replace(" ", "+").replace("Z", "+00:00"))
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
@@ -485,8 +486,11 @@ def station_events(after: str | None = Query(default=None, max_length=40)):
     Then pass the returned cursor each time. Events are oldest first, so lights show in order.
     """
     now = datetime.now(timezone.utc)
+    def iso(t):                                   # "...Z": no "+" to escape in a URL
+        return t.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
     if not after:
-        return {"cursor": now.isoformat(), "events": []}
+        return {"cursor": iso(now), "events": []}
     try:
         since = _utc(after)
     except ValueError:
@@ -506,8 +510,7 @@ def station_events(after: str | None = Query(default=None, max_length=40)):
                            "led": "L:Y" if pick is False else "L:G"})
     events.sort(key=lambda e: e["at"])
     cursor = events[-1]["at"] if events else since
-    return {"cursor": cursor.isoformat(),
-            "events": [{**e, "at": e["at"].isoformat()} for e in events[:20]]}
+    return {"cursor": iso(cursor), "events": [{**e, "at": iso(e["at"])} for e in events[:20]]}
 
 
 PACKAGE_STATUS = Literal["all", "not_shipped", "shipped", "returned", "held"]

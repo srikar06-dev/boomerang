@@ -504,3 +504,9 @@ def test_station_events_give_new_results_in_order_and_never_replay(world):
 def test_station_events_rejects_a_bad_cursor(world):
     with pytest.raises(HTTPException):
         main.station_events(after="not-a-date")
+
+
+def test_station_cursor_has_no_plus_and_tolerates_a_decoded_plus(world):
+    c = main.station_events(after=None)["cursor"]
+    assert c.endswith("Z") and "+" not in c
+    assert main.station_events(after="2026-11-15T05:43:39.114680 00:00")["events"] == []   # "+" sent unencoded
