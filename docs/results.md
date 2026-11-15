@@ -41,9 +41,9 @@ Each round ran on a different version of the code, so the rounds are not added t
 | 1 | First full build | 12 | 3 | 12 | 7 | 5 |
 | 2 | Tight weight tolerance, ship-out photo as reference, near-miss serials | 4 | 0 | 3 | 2 | 1 |
 | 3 | Different-item rule | 10 | 1 | 7 | 4 | 3 |
-| 4 | Unbiased object checks (final) | 9 + 2 | 1 | 8 + 3 | 8 + 3 | 0 |
+| 4 | Unbiased object checks (final) | 9 | 1 | 8 | 8 | 0 |
 
-(Round 4 counts are this run plus a 5-case check just before it: 17 returns in total.)
+(Round 4 = the 17 final-build returns above: a 5-case check, then the final run.)
 
 ## Changes made to reach the targets
 
