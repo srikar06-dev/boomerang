@@ -21,6 +21,8 @@ def decide(
     visual_disagrees: bool = False,
     unit_provable: bool = True,
     seal_broken: bool = False,
+    different_item: bool = False,
+    description_mismatch: bool = False,
 ) -> tuple[str, list[str]]:
     reasons = list(risk.reasons)
 
@@ -38,7 +40,11 @@ def decide(
                    and risk.terms["W"] == 0 and not visual_disagrees)
     if serial_only:
         return REVIEW, reasons + ["SERIAL_ONLY_SIGNAL"]
-    # 3. Hard red: empty/filler box or a different unit
+    # 3. Hard red: empty/filler box, a different unit, or a different object altogether.
+    #    Test set: the model wrote "blue folding umbrella, not the shipped headphones" at 0.8
+    #    confidence, and V = 0.8 missed the old "> 0.8" line by a hair.
+    if different_item:
+        return RED, reasons + ["DIFFERENT_ITEM"]
     if risk.terms["W"] >= 1.0 or risk.terms["V"] > 0.8:
         return RED, reasons
     # 5. Sensor signal alone may only push to review
@@ -67,6 +73,11 @@ def decide(
         decision = YELLOW                  # reason WEIGHT_MISMATCH already added by risk.score
     if decision == GREEN and risk.terms["D"] > 0:
         decision = YELLOW                  # reason NEW_DAMAGE already added by risk.score
+    # 7c. The model's own description of the photo does not mention the product (it described a
+    #     "white power bank" for a phone order and still said same_item=true). Never instant.
+    if decision == GREEN and description_mismatch:
+        decision = YELLOW
+        reasons.append("ITEM_DESCRIPTION_MISMATCH")
     # 8. Local OpenCV check says the photos do not show the same unit, but the model says they do.
     #    Two independent readers disagree -> a person looks. Never RED on this signal alone.
     if visual_disagrees and decision in (GREEN, YELLOW):
