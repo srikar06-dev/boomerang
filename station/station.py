@@ -165,13 +165,32 @@ def ask_float(prompt: str) -> float | None:
         return None
 
 
+def new_item() -> str:
+    """Registers one of our own items (product + order) and returns its new order ID (ORD-2001, ...)."""
+    name = ""
+    while not name:
+        name = input("  Item name (e.g. Anker charger): ").strip()[:60]
+    price = None
+    while price is None:
+        price = ask_float("  Price in USD: ")
+    has_serial = input("  Has a printed serial number? [Y/n]: ").strip().lower() != "n"
+    out = call("POST", "/orders", staff=True, json={"name": name, "price_usd": price, "has_serial": has_serial})
+    print(f"  Created order {out['order_id']} for '{name}' (${price:g}). Use this ID for the return later.")
+    return out["order_id"]
+
+
 # ---------------------------------------------------------------- one check
 def run_once(args, uno: Uno) -> None:
     mode = input("\nShip-out or return? [s/r] (q to quit): ").strip().lower()
     if mode == "q":
         raise KeyboardInterrupt
     purpose = "shipout" if mode == "s" else "return"
-    order_id = input("Order ID (e.g. ORD-1001): ").strip().upper()
+    if purpose == "shipout":
+        order_id = input("Order ID (e.g. ORD-1010), or press Enter to add a NEW item: ").strip().upper()
+        if not order_id:
+            order_id = new_item()
+    else:
+        order_id = input("Order ID (e.g. ORD-1010): ").strip().upper()
 
     session = call("POST", "/session", staff=(purpose == "shipout"),
                    json={"order_id": order_id, "purpose": purpose})

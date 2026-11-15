@@ -282,3 +282,12 @@ def test_model_usage_is_recorded_and_summarised(world, monkeypatch):
     do_return(s3)
     assert database.returns.docs[0]["model_usage"]["input_tokens"] == 3000
     assert main.stats()["model"] == {"calls": 1, "avg_cost_usd": 0.000209, "median_seconds": 2.5}
+
+
+def test_new_item_at_shipout_then_honest_return(world):
+    database, s3, answer = world
+    created = main.new_order(main.NewItemRequest(name="Anker charger", price_usd=30, has_serial=True))
+    assert created["order_id"] == "ORD-2001"
+    do_shipout(s3, order="ORD-2001", weight=1400, serial="SN00000001")
+    r, _ = do_return(s3, order="ORD-2001")
+    assert r.decision == "GREEN"          # cheap item, same unit, weight and serial match -> instant refund

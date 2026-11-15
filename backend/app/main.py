@@ -16,9 +16,9 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, local, security, seed, storage
+from . import catalog, config, local, security, seed, storage
 from .db import db
-from .models import (SLOTS, Decision, Fingerprint, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
+from .models import (SLOTS, Decision, Fingerprint, NewItemRequest, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
                      ReviewRequest, SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
 from .stages import authenticity, disposition, vision, visual_match
 from .stages.policy import LED, decide
@@ -363,6 +363,14 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
 # --------------------------------------------------------------------------------------
 # Demo data
 # --------------------------------------------------------------------------------------
+@app.post("/orders", dependencies=[Depends(require_station)])
+def new_order(req: NewItemRequest):
+    """Staff only: create a product + order for a new demo item, so it can be shipped out right away."""
+    order_id = catalog.add_item(db(), req.name, req.price_usd, req.weight_g, req.has_serial,
+                                orders=1, customer_id=req.customer_id)[0]
+    return {"order_id": order_id, "name": req.name, "price_usd": req.price_usd, "has_serial": req.has_serial}
+
+
 @app.post("/seed", dependencies=[Depends(require_station)])
 def reseed():
     """Wipes and reloads the demo data. Needs the station key AND DEMO_MODE=1 in .env on this machine."""

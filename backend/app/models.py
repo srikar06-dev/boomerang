@@ -139,6 +139,15 @@ class ReturnResponse(BaseModel):
     disposition: dict
 
 
+class NewItemRequest(BaseModel):
+    """Staff: register one of our own demo items at ship-out time (creates product + one order)."""
+    name: str = Field(min_length=1, max_length=60)
+    price_usd: float = Field(ge=0, le=100_000)
+    has_serial: bool = True
+    weight_g: float | None = Field(default=None, ge=0, le=100_000)
+    customer_id: str = Field(default="CUST-001", pattern=ID_PATTERN)
+
+
 class ReviewRequest(BaseModel):
     action: Literal["approve", "hold"]
     reviewer: str = Field(min_length=1, max_length=40)
