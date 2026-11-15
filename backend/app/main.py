@@ -20,7 +20,7 @@ from . import catalog, config, local, security, seed, storage
 from .db import db
 from .models import (SLOTS, Decision, Fingerprint, NewItemRequest, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
                      ReviewRequest, SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
-from .stages import authenticity, disposition, vision, visual_match
+from .stages import authenticity, disposition, serial, vision, visual_match
 from .stages.policy import LED, decide
 from .stages.risk import Signals, score, unit_confidence
 from .stages.sanitize import BadImage, sanitize
@@ -288,8 +288,9 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         # Prefer the scale as read from the photo; the typed number is only a backup.
         return_weight = result.scale_reading_g if result.scale_reading_g is not None else req.weight_g
         serial_expected = bool(product.get("has_serial", True) and fp.get("serial"))
-        read = _norm_serial(result.serial_read)
-        serial_match = None if not (serial_expected and read) else read == _norm_serial(fp.get("serial"))
+        # Tolerant compare: look-alike characters, one misread, and every code on the label count.
+        serial_match = (serial.matches(fp.get("serial"), [result.serial_read, *result.label_codes])
+                        if serial_expected else None)
         damage = 0.0 if not result.new_damage else (1.0 if result.grade == "D" else 0.5)
         signals = Signals(
             shipout_weight_g=ship_weight,

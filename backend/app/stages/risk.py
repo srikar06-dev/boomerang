@@ -32,6 +32,7 @@ class RiskResult:
     terms: dict
     reasons: list = field(default_factory=list)
     missing: list = field(default_factory=list)  # evidence we expected but did not get: "WEIGHT", "SERIAL"
+    model_v: float = 0.0   # V from the vision model alone, before a serial mismatch forces V = 1
 
 
 def unit_confidence(same_item: bool, same_unit: bool, confidence: float) -> float:
@@ -67,6 +68,7 @@ def score(s: Signals) -> RiskResult:
         reasons.append(f"WEIGHT_MISMATCH ({s.shipout_weight_g:.0f} g -> {s.return_weight_g:.0f} g)")
 
     V = 1.0 - max(0.0, min(1.0, s.same_unit_confidence))
+    model_v = V
     if s.serial_match is False:
         V = 1.0
         reasons.append("SERIAL_MISMATCH")
@@ -92,4 +94,4 @@ def score(s: Signals) -> RiskResult:
 
     terms = {"W": W, "V": V, "S": S, "D": D, "H": H, "P": P}
     total = sum(WEIGHTS[k] * v for k, v in terms.items())
-    return RiskResult(score=round(total, 3), terms=terms, reasons=reasons, missing=missing)
+    return RiskResult(score=round(total, 3), terms=terms, reasons=reasons, missing=missing, model_v=model_v)

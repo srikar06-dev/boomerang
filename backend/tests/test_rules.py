@@ -25,7 +25,9 @@ def test_empty_box_is_red():
 
 
 def test_serial_swap_is_red():
-    assert run(serial_match=False) == RED
+    assert run(serial_match=False) == REVIEW                      # serial alone: likely a misread
+    assert run(serial_match=False, return_weight_g=200) == RED      # serial + weight: a real swap
+    assert run(serial_match=False, same_unit_confidence=0.2) == RED  # serial + model says different
 
 
 def test_model_unsure_goes_to_review():

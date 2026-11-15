@@ -94,11 +94,30 @@ def test_rock_in_box_is_red(world):
     assert r.disposition["action"] == "HOLD_FOR_REVIEW"
 
 
-def test_serial_swap_is_red(world):
+def test_serial_swap_alone_is_held_for_review(world):
+    # Same-model swap: weight matches and the model sees nothing wrong; only the serial differs.
+    # A serial read can be wrong (rotated label, wrong line), so a person checks it: REVIEW, never a refund.
     _, s3, answer = world
     do_shipout(s3)
     answer["result"] = answer["result"].model_copy(update={"serial_read": "SN99999999"})
+    r, _ = do_return(s3)
+    assert r.decision == "REVIEW" and "SERIAL_MISMATCH" in r.reasons and "SERIAL_ONLY_SIGNAL" in r.reasons
+
+
+def test_serial_swap_with_wrong_weight_is_red(world):
+    _, s3, answer = world
+    do_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": "SN99999999", "scale_reading_g": 300})
     assert do_return(s3)[0].decision == "RED"
+
+
+def test_upside_down_label_misread_still_matches_via_label_codes(world):
+    _, s3, answer = world
+    do_shipout(s3)      # serial SN00000001
+    answer["result"] = answer["result"].model_copy(
+        update={"serial_read": "X00285289", "label_codes": ["X00285289", "SN0OOOOO1"]})
+    r, _ = do_return(s3)
+    assert "SERIAL_MISMATCH" not in r.reasons
 
 
 def test_model_says_different_unit_is_red(world):

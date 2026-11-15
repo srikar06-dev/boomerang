@@ -25,6 +25,12 @@ def decide(
         return REVIEW, reasons + ["CODE_NOT_VISIBLE"]
     if image_reused:
         return REVIEW, reasons + ["IMAGE_REUSED"]
+    # 3a. A serial mismatch that NOTHING else supports (weight fine, model says same unit, OpenCV
+    #     agrees) is most often a misread label: a person checks it instead of an automatic RED.
+    serial_only = ("SERIAL_MISMATCH" in reasons and risk.model_v <= 0.5
+                   and risk.terms["W"] == 0 and not visual_disagrees)
+    if serial_only:
+        return REVIEW, reasons + ["SERIAL_ONLY_SIGNAL"]
     # 3. Hard red: empty/filler box or a different unit
     if risk.terms["W"] >= 1.0 or risk.terms["V"] > 0.8:
         return RED, reasons
