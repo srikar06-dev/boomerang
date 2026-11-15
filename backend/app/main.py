@@ -16,11 +16,11 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, local, security, seed, storage
+from . import catalog, config, local, security, seed, storage
 from .db import db
-from .models import (SLOTS, Decision, Fingerprint, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
+from .models import (SLOTS, Decision, Fingerprint, NewItemRequest, ShipoutCheckRequest, unit_id_of, ReturnChecks, ReturnRecord, ReturnRequest, ReturnResponse,
                      ReviewRequest, SessionRequest, SessionResponse, ShipoutRequest, UploadUrlRequest, UploadUrlResponse)
-from .stages import authenticity, disposition, vision, visual_match
+from .stages import authenticity, disposition, serial, vision, visual_match
 from .stages.policy import LED, decide
 from .stages.risk import Signals, score, unit_confidence
 from .stages.sanitize import BadImage, sanitize
@@ -187,17 +187,60 @@ def _claim(session: dict) -> None:
 # --------------------------------------------------------------------------------------
 # Ship-out: record the fingerprint of the exact unit (staff only)
 # --------------------------------------------------------------------------------------
+@app.post("/shipout/check", dependencies=[Depends(require_station)])
+def shipout_check(req: ShipoutCheckRequest):
+    """Staff, BEFORE saving a ship-out: is the item in the photo the product on this order?
+
+    Catches a wrong pick before it reaches the customer (who would otherwise return it as "wrong
+    item"), suggests the serial read from photo 2, and notes damage already present at ship-out.
+    Evidence only: the station shows a warning and staff decide. Does not use up the session.
+    """
+    session = _open_session(req.token, "shipout")
+    _, clean = _load_photos(session)
+    order = db().orders.find_one({"order_id": session["order_id"]}) or {}
+    product = db().products.find_one({"sku": order.get("sku")}) or {}
+    name = product.get("name") or order.get("sku") or "unknown product"
+    result, model_used = vision.grade(clean[0].jpeg, clean[1].jpeg, {"product": name}, session["code"])
+    if result is None:
+        check = {"product_match": None, "product_name": name, "serial_suggestion": None, "label_codes": [],
+                 "seal_intact": None, "defects": [], "notes": "Pick check unavailable (model did not answer).",
+                 "model_used": model_used}
+    else:
+        check = {"product_match": bool(result.same_item and result.confidence >= 0.6),
+                 "product_name": name,
+                 "serial_suggestion": _norm_serial(result.serial_read),
+                 "label_codes": result.label_codes,
+                 "seal_intact": result.seal_intact,
+                 "defects": result.new_damage,      # nothing recorded yet, so all damage seen is "already there"
+                 "notes": result.notes,
+                 "model_used": model_used}
+    db().sessions.update_one({"session_id": session["session_id"]}, {"$set": {"pick_check": check}})
+    # The product's return profile, so the station only asks what applies (no serial prompt for "none").
+    return {**check, "unit_id": unit_id_of(product), "sealed_consumable": bool(product.get("sealed_consumable"))}
+
+
 @app.post("/shipout", dependencies=[Depends(require_station)])
 def shipout(req: ShipoutRequest):
     session = _open_session(req.token, "shipout")
     keys, clean = _load_photos(session)
+    check = session.get("pick_check") or {}
+    match = check.get("product_match")
+    if match is False and not req.ship_anyway:     # refuse BEFORE claiming, so staff can retry
+        raise HTTPException(status_code=409, detail="Pick check says this is not the ordered product")
     _claim(session)
+    notes = check.get("notes") or ""
+    if match is False:
+        notes = f"SHIPPED ANYWAY after a pick-check warning: {notes}"
     fingerprint = Fingerprint(
         weight_g=req.weight_g,
         photo_keys=keys,
         sha256=[c.sha256 for c in clean],
         phash=[c.phash for c in clean],
         serial=_norm_serial(req.serial),
+        defects=list(check.get("defects") or [])[:10],
+        pick_verified=match,
+        pick_notes=notes[:300],
+        seal_intact=check.get("seal_intact"),
     )
     db().orders.update_one(
         {"order_id": session["order_id"]},
@@ -208,37 +251,6 @@ def shipout(req: ShipoutRequest):
 # --------------------------------------------------------------------------------------
 # Return: check the item against its ship-out fingerprint and decide
 # --------------------------------------------------------------------------------------
-def _edit_distance(a: str, b: str) -> int:
-    """Levenshtein distance: single-character insertions, deletions and substitutions."""
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        cur = [i]
-        for j, cb in enumerate(b, 1):
-            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
-        prev = cur
-    return prev[-1]
-
-
-SERIAL_NEAR_MISS = 2   # up to 2 wrong characters = probably a misread, not a different unit
-
-
-def _compare_serial(read: str | None, recorded: str | None) -> tuple[bool | None, str | None]:
-    """True = same, False = clearly different unit, None = can't tell (unreadable, or a near miss).
-
-    A near miss (a character or two off, e.g. handwritten U read as V) is far more likely a misread
-    than a swap. It must not count as a swap (hard RED), and it can never be an instant refund either:
-    None caps the decision at YELLOW.
-    """
-    a, b = _norm_serial(read), _norm_serial(recorded)
-    if not (a and b):
-        return None, None
-    if a == b:
-        return True, None
-    if _edit_distance(a, b) <= SERIAL_NEAR_MISS:
-        return None, f"SERIAL_NEAR_MATCH (read {a}, recorded {b})"
-    return False, None
-
-
 def _norm_serial(text: str | None) -> str | None:
     """Uppercase letters and digits only, so 'sn-12 34' and 'SN1234' compare equal."""
     cleaned = re.sub(r"[^A-Z0-9]", "", (text or "").upper())
@@ -310,7 +322,6 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
 
     price = float(product.get("price_usd") or 0.0)
     ship_weight = fp.get("weight_g")
-    serial_note = None
     if result is None:
         return_weight = req.weight_g
         # No model evidence: neutral unit/serial values. The policy sends model_ok=False to REVIEW.
@@ -320,8 +331,9 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         # Prefer the scale as read from the photo; the typed number is only a backup.
         return_weight = result.scale_reading_g if result.scale_reading_g is not None else req.weight_g
         serial_expected = bool(product.get("has_serial", True) and fp.get("serial"))
-        serial_match, serial_note = (_compare_serial(result.serial_read, fp.get("serial"))
-                                     if serial_expected else (None, None))
+        # Tolerant compare: look-alike characters, one misread, and every code on the label count.
+        serial_match = (serial.matches(fp.get("serial"), [result.serial_read, *result.label_codes])
+                        if serial_expected else None)
         damage = 0.0 if not result.new_damage else (1.0 if result.grade == "D" else 0.5)
         signals = Signals(
             shipout_weight_g=ship_weight,
@@ -335,6 +347,11 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
             price_usd=price,
         )
 
+    # Return profile: only a serial on the device itself proves it is the same unit. A box label
+    # (FNSKU) only proves it is the same listing; an opened sealed product can never be resold.
+    unit_provable = unit_id_of(product) == "device" and bool(fp.get("serial"))
+    seal_broken = bool(product.get("sealed_consumable") and result is not None and result.seal_intact is not True)
+
     risk = score(signals)
     decision, reasons = decide(
         risk,
@@ -346,11 +363,12 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
         price_usd=price,
         visual_disagrees=bool(result and visual and visual.looks_different
                               and result.same_item and result.same_unit),
+        unit_provable=unit_provable,
+        seal_broken=seal_broken,
     )
-    if serial_note:
-        reasons.append(serial_note)
     plan = disposition.choose(result.grade if result else None,
-                              product.get("resale_value_by_grade") or {}, decision)
+                              product.get("resale_value_by_grade") or {}, decision,
+                              opened_consumable=seal_broken)
 
     delta = None
     if ship_weight and return_weight is not None:
@@ -378,6 +396,7 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
             grade=result.grade if result else None,
             visual_match=visual.score if visual else None,
             visual_inliers=[visual.item_inliers, visual.serial_inliers] if visual else [],
+            seal_intact=result.seal_intact if result else None,
         ),
         risk_score=risk.score,
         decision=decision,
@@ -397,6 +416,19 @@ def _submit_return(req: ReturnRequest, x_station_key: str | None):
 # --------------------------------------------------------------------------------------
 # Demo data
 # --------------------------------------------------------------------------------------
+@app.post("/orders", dependencies=[Depends(require_station)])
+def new_order(req: NewItemRequest):
+    """Staff only: create a product + order for a new demo item, so it can be shipped out right away."""
+    order_id = catalog.add_item(db(), req.name, req.price_usd, req.weight_g, req.has_serial,
+                                orders=1, customer_id=req.customer_id, unit_id=req.unit_id,
+                                sealed_consumable=req.sealed_consumable)[0]
+    product = db().orders.find_one({"order_id": order_id}) or {}
+    product = db().products.find_one({"sku": product.get("sku")}) or {}
+    return {"order_id": order_id, "name": req.name, "price_usd": req.price_usd,
+            "has_serial": product.get("has_serial", req.has_serial), "unit_id": unit_id_of(product),
+            "sealed_consumable": bool(product.get("sealed_consumable"))}
+
+
 @app.post("/seed", dependencies=[Depends(require_station)])
 def reseed():
     """Wipes and reloads the demo data. Needs the station key AND DEMO_MODE=1 in .env on this machine."""

@@ -94,11 +94,30 @@ def test_rock_in_box_is_red(world):
     assert r.disposition["action"] == "HOLD_FOR_REVIEW"
 
 
-def test_serial_swap_is_red(world):
+def test_serial_swap_alone_is_held_for_review(world):
+    # Same-model swap: weight matches and the model sees nothing wrong; only the serial differs.
+    # A serial read can be wrong (rotated label, wrong line), so a person checks it: REVIEW, never a refund.
     _, s3, answer = world
     do_shipout(s3)
     answer["result"] = answer["result"].model_copy(update={"serial_read": "SN99999999"})
+    r, _ = do_return(s3)
+    assert r.decision == "REVIEW" and "SERIAL_MISMATCH" in r.reasons and "SERIAL_ONLY_SIGNAL" in r.reasons
+
+
+def test_serial_swap_with_wrong_weight_is_red(world):
+    _, s3, answer = world
+    do_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": "SN99999999", "scale_reading_g": 300})
     assert do_return(s3)[0].decision == "RED"
+
+
+def test_upside_down_label_misread_still_matches_via_label_codes(world):
+    _, s3, answer = world
+    do_shipout(s3)      # serial SN00000001
+    answer["result"] = answer["result"].model_copy(
+        update={"serial_read": "X00285289", "label_codes": ["X00285289", "SN0OOOOO1"]})
+    r, _ = do_return(s3)
+    assert "SERIAL_MISMATCH" not in r.reasons
 
 
 def test_model_says_different_unit_is_red(world):
@@ -284,26 +303,102 @@ def test_model_usage_is_recorded_and_summarised(world, monkeypatch):
     assert main.stats()["model"] == {"calls": 1, "avg_cost_usd": 0.000209, "median_seconds": 2.5}
 
 
-# ---------------------------------------------------------------- serial misreads
-def test_serial_near_miss_is_yellow_not_red(world):
+def test_new_item_at_shipout_then_honest_return(world):
+    database, s3, answer = world
+    created = main.new_order(main.NewItemRequest(name="Anker charger", price_usd=30, has_serial=True))
+    assert created["order_id"] == "ORD-2001"
+    do_shipout(s3, order="ORD-2001", weight=1400, serial="SN00000001")
+    r, _ = do_return(s3, order="ORD-2001")
+    assert r.decision == "GREEN"          # cheap item, same unit, weight and serial match -> instant refund
+
+
+# ---------- return profiles ----------
+def new_item(name, price, unit_id, sealed=False):
+    return main.new_order(main.NewItemRequest(name=name, price_usd=price, unit_id=unit_id,
+                                              sealed_consumable=sealed))["order_id"]
+
+
+def test_box_label_only_item_is_held_not_refunded_instantly(world):
+    # Arduino in its own box: the label names the listing, not the board. Same everything -> still held.
     _, s3, answer = world
-    do_shipout(s3, order="ORD-1005", weight=260, serial="BMR-UYTUJ")      # headphones, $149
-    answer["result"] = answer["result"].model_copy(update={"serial_read": "BMR-VYTUJ", "scale_reading_g": 262})
-    r, _ = do_return(s3, order="ORD-1005")
-    assert r.decision == "YELLOW"
-    assert any(x.startswith("SERIAL_NEAR_MATCH") for x in r.reasons)
+    oid = new_item("Arduino Nano", 45, "box")
+    do_shipout(s3, order=oid, serial="SN00000001")
+    r, _ = do_return(s3, order=oid)
+    assert r.decision == "YELLOW" and "UNIT_NOT_VERIFIABLE" in r.reasons
 
 
-def test_clearly_different_serial_is_still_red(world):
+def test_cheap_unprovable_item_still_gets_fast_refund(world):
     _, s3, answer = world
-    do_shipout(s3, order="ORD-1005", weight=260, serial="BMR-UYTUJ")
-    answer["result"] = answer["result"].model_copy(update={"serial_read": "BMR-9DUHR", "scale_reading_g": 262})
-    assert do_return(s3, order="ORD-1005")[0].decision == "RED"
+    oid = new_item("Phone case", 12, "none")
+    do_shipout(s3, order=oid, serial=None)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": None})
+    r, _ = do_return(s3, order=oid)
+    assert r.decision == "GREEN" and "UNIT_NOT_VERIFIABLE" not in r.reasons
 
 
-def test_serial_compare_rules():
-    assert main._compare_serial("sn-1234 5678", "SN12345678") == (True, None)
-    assert main._compare_serial(None, "SN12345678") == (None, None)
-    assert main._compare_serial("SN12345679", "SN12345678")[0] is None
-    assert main._compare_serial("XQ99887766", "SN12345678") == (False, None)
-    assert main._edit_distance("BMRUYTUJ", "BMRVYTUJ") == 1
+def test_seeded_bag_without_serial_is_held(world):
+    _, s3, answer = world
+    do_shipout(s3, order="ORD-1017", weight=780, serial=None)     # laptop bag $59, no serial
+    answer["result"] = answer["result"].model_copy(update={"serial_read": None, "scale_reading_g": 780})
+    r, _ = do_return(s3, order="ORD-1017")
+    assert r.decision == "YELLOW" and "UNIT_NOT_VERIFIABLE" in r.reasons
+
+
+def test_opened_cream_is_held_and_disposed(world):
+    _, s3, answer = world
+    oid = new_item("Face cream 50 ml", 25, "none", sealed=True)
+    do_shipout(s3, order=oid, serial=None)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": None, "seal_intact": False})
+    r, _ = do_return(s3, order=oid)
+    assert r.decision == "YELLOW" and "SEAL_BROKEN" in r.reasons
+    assert r.disposition["action"] == "DISPOSE" and r.disposition["ship_back"] is False
+
+
+def test_sealed_cream_with_intact_seal_is_green_and_restocked(world):
+    _, s3, answer = world
+    oid = new_item("Face cream 50 ml", 25, "none", sealed=True)
+    do_shipout(s3, order=oid, serial=None)
+    answer["result"] = answer["result"].model_copy(update={"serial_read": None, "seal_intact": True})
+    r, _ = do_return(s3, order=oid)
+    assert r.decision == "GREEN" and r.disposition["action"] == "RESTOCK"
+
+
+# ---------- ship-out pick check ----------
+def shipout_session(s3, order):
+    s = main.create_session(SessionRequest(order_id=order, purpose="shipout"), x_station_key=KEY)
+    upload(s3, s.token, (photo(1), photo(2)))
+    return s.token
+
+
+def test_pick_check_ok_suggests_serial_and_records_existing_damage(world):
+    database, s3, answer = world
+    answer["result"] = answer["result"].model_copy(update={"new_damage": ["scuff on lid"]})
+    token = shipout_session(s3, "ORD-1001")
+    check = main.shipout_check(main.ShipoutCheckRequest(token=token))
+    assert check["product_match"] is True and check["serial_suggestion"] == "SN00000001"
+    main.shipout(ShipoutRequest(token=token, weight_g=1400, serial=check["serial_suggestion"]))
+    fp = database.orders.find_one({"order_id": "ORD-1001"})["fingerprint"]
+    assert fp["pick_verified"] is True and fp["defects"] == ["scuff on lid"]
+
+
+def test_wrong_pick_is_refused_and_session_survives(world):
+    database, s3, answer = world
+    answer["result"] = answer["result"].model_copy(update={"same_item": False, "notes": "This is a mouse."})
+    token = shipout_session(s3, "ORD-1001")
+    assert main.shipout_check(main.ShipoutCheckRequest(token=token))["product_match"] is False
+    with pytest.raises(HTTPException) as e:
+        main.shipout(ShipoutRequest(token=token, weight_g=1400, serial="SN1"))
+    assert e.value.status_code == 409
+    # Staff override: same token still works, and the override is recorded.
+    main.shipout(ShipoutRequest(token=token, weight_g=1400, serial="SN1", ship_anyway=True))
+    fp = database.orders.find_one({"order_id": "ORD-1001"})["fingerprint"]
+    assert fp["pick_verified"] is False and fp["pick_notes"].startswith("SHIPPED ANYWAY")
+
+
+def test_pick_check_model_failure_does_not_block(world, monkeypatch):
+    database, s3, _ = world
+    monkeypatch.setattr(main.vision, "grade", lambda *a, **k: (None, "none"))
+    token = shipout_session(s3, "ORD-1001")
+    assert main.shipout_check(main.ShipoutCheckRequest(token=token))["product_match"] is None
+    main.shipout(ShipoutRequest(token=token, weight_g=1400, serial="SN1"))
+    assert database.orders.find_one({"order_id": "ORD-1001"})["fingerprint"]["pick_verified"] is None

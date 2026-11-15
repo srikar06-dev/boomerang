@@ -25,7 +25,9 @@ def test_empty_box_is_red():
 
 
 def test_serial_swap_is_red():
-    assert run(serial_match=False) == RED
+    assert run(serial_match=False) == REVIEW                      # serial alone: likely a misread
+    assert run(serial_match=False, return_weight_g=200) == RED      # serial + weight: a real swap
+    assert run(serial_match=False, same_unit_confidence=0.2) == RED  # serial + model says different
 
 
 def test_model_unsure_goes_to_review():
@@ -109,3 +111,13 @@ def test_cost_estimate():
     assert estimate_cost("us.amazon.nova-lite-v1:0", 1_000_000, 0) == 0.06
     assert estimate_cost("us.amazon.nova-lite-v1:0", 3000, 150) == round((3000 * 0.06 + 150 * 0.24) / 1e6, 6)
     assert estimate_cost("us.amazon.nova-pro-v1:0", 3000, 150) is None
+
+
+def test_profile_rules_only_lower_a_decision():
+    from app.stages.policy import decide
+    from app.stages.risk import RiskResult
+    r = RiskResult(score=0.0, terms={"W": 0, "V": 0, "S": 0, "D": 0, "H": 0, "P": 0}, reasons=[], missing=[])
+    base = dict(model_ok=True, model_confidence=0.9, code_visible=True, image_reused=False)
+    assert decide(r, **base, price_usd=50, unit_provable=False)[0] == "YELLOW"
+    assert decide(r, **base, price_usd=29, unit_provable=False)[0] == "GREEN"
+    assert decide(r, **base, price_usd=10, seal_broken=True) == ("YELLOW", ["SEAL_BROKEN"])

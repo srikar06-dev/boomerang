@@ -4,6 +4,11 @@ from .risk import RiskResult
 GREEN, YELLOW, RED, REVIEW = "GREEN", "YELLOW", "RED", "REVIEW"
 LED = {GREEN: "L:G", YELLOW: "L:Y", RED: "L:R", REVIEW: "L:Y"}
 
+# Items at or above this price whose unit cannot be proven (no serial on the device itself) are
+# never an instant refund: they are held (YELLOW) until the warehouse opens and checks them.
+# Below it, a fast refund plus the customer's history is cheaper than an inspection.
+UNPROVABLE_HOLD_USD = 30.0
+
 
 def decide(
     risk: RiskResult,
@@ -14,6 +19,8 @@ def decide(
     image_reused: bool,
     price_usd: float,
     visual_disagrees: bool = False,
+    unit_provable: bool = True,
+    seal_broken: bool = False,
 ) -> tuple[str, list[str]]:
     reasons = list(risk.reasons)
 
@@ -25,6 +32,12 @@ def decide(
         return REVIEW, reasons + ["CODE_NOT_VISIBLE"]
     if image_reused:
         return REVIEW, reasons + ["IMAGE_REUSED"]
+    # 3a. A serial mismatch that NOTHING else supports (weight fine, model says same unit, OpenCV
+    #     agrees) is most often a misread label: a person checks it instead of an automatic RED.
+    serial_only = ("SERIAL_MISMATCH" in reasons and risk.model_v <= 0.5
+                   and risk.terms["W"] == 0 and not visual_disagrees)
+    if serial_only:
+        return REVIEW, reasons + ["SERIAL_ONLY_SIGNAL"]
     # 3. Hard red: empty/filler box or a different unit
     if risk.terms["W"] >= 1.0 or risk.terms["V"] > 0.8:
         return RED, reasons
@@ -53,4 +66,13 @@ def decide(
     if visual_disagrees and decision in (GREEN, YELLOW):
         decision = REVIEW
         reasons.append("VISUAL_MISMATCH")
+    # 9. Return profile. Nothing proves it is the same unit (no serial on the device): hold it for
+    #    inspection unless it is cheap. An opened sealed product is held too (and disposed, see
+    #    disposition) - the refund is a policy call, but it can never go back on the shelf.
+    if decision == GREEN and not unit_provable and price_usd >= UNPROVABLE_HOLD_USD:
+        decision = YELLOW
+        reasons.append("UNIT_NOT_VERIFIABLE")
+    if seal_broken and decision in (GREEN, YELLOW):
+        decision = YELLOW
+        reasons.append("SEAL_BROKEN")
     return decision, reasons
