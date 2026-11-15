@@ -121,3 +121,24 @@ def test_profile_rules_only_lower_a_decision():
     assert decide(r, **base, price_usd=50, unit_provable=False)[0] == "YELLOW"
     assert decide(r, **base, price_usd=29, unit_provable=False)[0] == "GREEN"
     assert decide(r, **base, price_usd=10, seal_broken=True) == ("YELLOW", ["SEAL_BROKEN"])
+
+
+def test_vision_reply_tolerates_common_nova_variations():
+    from app.stages.vision import VisionResult
+    r = VisionResult(**{"same_item": "true", "same_unit": True, "confidence": 95, "serial_read": "null",
+                        "label_codes": None, "scale_reading_g": "81 g", "code_visible": "yes",
+                        "new_damage": "none", "seal_intact": "unknown", "grade": "a", "notes": None})
+    assert (r.same_item, r.confidence, r.serial_read, r.label_codes, r.scale_reading_g) == (True, 0.95, None, [], 81.0)
+    assert (r.code_visible, r.new_damage, r.seal_intact, r.grade, r.notes) == (True, [], None, "A", "")
+    r = VisionResult(**{"same_item": True, "same_unit": False, "confidence": "0.8",
+                        "label_codes": "BMR-UYTUJ", "scale_reading_g": "unreadable", "grade": "excellent"})
+    assert (r.label_codes, r.scale_reading_g, r.confidence, r.grade) == (["BMR-UYTUJ"], None, 0.8, "C")
+
+
+def test_vision_reply_still_rejects_missing_core_fields():
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from app.stages.vision import VisionResult
+    with _pytest.raises(ValidationError):
+        VisionResult(**{"confidence": 0.9})                  # no same_item / same_unit: unusable

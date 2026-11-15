@@ -1,10 +1,11 @@
 """Vision grading via Amazon Bedrock (Converse API). Output is evidence, never a decision."""
 import json
 import logging
+import re
 import time
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .. import config
 
@@ -82,6 +83,67 @@ class VisionResult(BaseModel):
     grade: Literal["A", "B", "C", "D"] = "C"
     notes: str = ""
 
+    # Nova does not always follow the JSON shape exactly. Small, unambiguous variations are fixed
+    # here instead of throwing the whole answer away (a rejected answer means 3 calls and REVIEW).
+    @field_validator("label_codes", "new_damage", mode="before")
+    @classmethod
+    def _as_list(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v] if v.strip() and v.strip().lower() not in ("none", "null", "n/a") else []
+        return [str(x) for x in v if x not in (None, "")]
+
+    @field_validator("serial_read", mode="before")
+    @classmethod
+    def _as_text(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return None if text.lower() in ("", "null", "none", "n/a", "unknown", "unreadable") else text
+
+    @field_validator("scale_reading_g", mode="before")
+    @classmethod
+    def _as_grams(cls, v):
+        if v is None or isinstance(v, (int, float)):
+            return v
+        m = re.search(r"-?\d+(?:\.\d+)?", str(v))          # "81 g" -> 81; "unreadable" -> None
+        return float(m.group()) if m else None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _as_fraction(cls, v):
+        if isinstance(v, str):
+            m = re.search(r"\d+(?:\.\d+)?", v)
+            v = float(m.group()) if m else 0.0
+        if isinstance(v, (int, float)) and 1 < v <= 100:
+            v = v / 100                                     # "95" or 95 meant 95%
+        return v
+
+    @field_validator("same_item", "same_unit", "code_visible", "seal_intact", mode="before")
+    @classmethod
+    def _as_bool(cls, v):
+        if isinstance(v, str):
+            low = v.strip().lower()
+            if low in ("true", "yes", "y"):
+                return True
+            if low in ("false", "no", "n"):
+                return False
+            if low in ("null", "none", "unknown", ""):
+                return None
+        return v
+
+    @field_validator("grade", mode="before")
+    @classmethod
+    def _as_grade(cls, v):
+        text = str(v or "").strip().upper()
+        return text[0] if text[:1] in ("A", "B", "C", "D") else "C"
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _as_notes(cls, v):
+        return "" if v is None else str(v)[:300]
+
 
 _client = None
 
@@ -109,7 +171,15 @@ def _call(model_id: str, item_jpg: bytes, serial_jpg: bytes, fingerprint: dict, 
     last_usage.update(model=model_id, input_tokens=tin, output_tokens=tout,
                       seconds=round(time.monotonic() - started, 2), cost_usd=estimate_cost(model_id, tin, tout))
     text = "".join(part.get("text", "") for part in r["output"]["message"]["content"])
-    return VisionResult(**json.loads(_json_object(text)))
+    try:
+        return VisionResult(**json.loads(_json_object(text)))
+    except ValidationError as e:
+        fields = "; ".join(f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors())
+        log.warning("vision: %s reply did not fit the schema (%s). Reply was: %s", model_id, fields, text[:400])
+        raise
+    except json.JSONDecodeError:
+        log.warning("vision: %s reply was not JSON. Reply was: %s", model_id, text[:400])
+        raise
 
 
 def _json_object(text: str) -> str:
