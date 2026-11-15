@@ -1,12 +1,17 @@
 // Boomerang counter station - Arduino UNO Q, MCU side (STM32).
 // Python on the Linux side calls show(code) over the Bridge:
 //   0 = ready (idle)   1 = GREEN   2 = YELLOW / review   3 = RED   4 = cannot reach the backend
-// Onboard 8x13 matrix shows an icon; external LEDs on D8/D9/D10 (220 ohm each) and a buzzer on D11.
-// UNO Q header pins are 3.3 V: LEDs are a little dimmer than on a 5 V Uno, which is fine.
+// Onboard 8x13 matrix shows an icon, the onboard RGB LED (LED3) shows the colour, and optionally:
+//   - ONE external RGB LED: green leg -> 220 ohm -> D8, red leg -> 220 ohm -> D10 (yellow = red + green),
+//     longest (common) leg to GND (common cathode) or 3.3V (common anode, set RGB_COMMON_ANODE = true), or
+//   - THREE separate LEDs on D8 green / D9 yellow / D10 red (set RGB_LED = false).
+// Buzzer on D11. UNO Q header pins are 3.3 V: LEDs are a little dimmer than on a 5 V Uno, which is fine.
 #include <Arduino_RouterBridge.h>
 #include <Arduino_LED_Matrix.h>
 
 const int PIN_G = 8, PIN_Y = 9, PIN_R = 10, PIN_BUZ = 11;
+const bool RGB_LED = true;                    // one RGB LED on D8 (green) + D10 (red); false = 3 separate LEDs
+const bool RGB_COMMON_ANODE = false;          // true if the RGB LED's long leg goes to 3.3V (LOW = on)
 const bool BUZZER_PASSIVE = false;            // true for a passive buzzer (no built-in oscillator)
 const unsigned long HOLD_MS = 8000;           // keep a verdict on screen this long, then back to "ready"
 
@@ -34,10 +39,26 @@ void setBeep(const unsigned long *steps, int n) {
   beepSteps = n; beepIndex = 0; beepStepAt = millis();
 }
 
+void ext(int pin, bool on) {                  // external LED, honouring common-anode wiring
+  bool level = (RGB_LED && RGB_COMMON_ANODE) ? !on : on;
+  digitalWrite(pin, level ? HIGH : LOW);
+}
+
+void onboard(bool r, bool g) {                 // onboard RGB LED3 is active-low: LOW = on
+  digitalWrite(LED3_R, r ? LOW : HIGH);
+  digitalWrite(LED3_G, g ? LOW : HIGH);
+  digitalWrite(LED3_B, HIGH);
+}
+
 void lights(int code) {
-  digitalWrite(PIN_G, code == 1 ? HIGH : LOW);
-  digitalWrite(PIN_Y, code == 2 || code == 4 ? HIGH : LOW);
-  digitalWrite(PIN_R, code == 3 ? HIGH : LOW);
+  bool green = code == 1, yellow = code == 2 || code == 4, red = code == 3;
+  if (RGB_LED) {                               // yellow = red + green together
+    ext(PIN_G, green || yellow);
+    ext(PIN_R, red || yellow);
+  } else {
+    ext(PIN_G, green); ext(PIN_Y, yellow); ext(PIN_R, red);
+  }
+  onboard(red || yellow, green || yellow);
   switch (code) {
     case 1: matrix.draw(CHECK); break;
     case 2: matrix.draw(DASH); break;
@@ -60,6 +81,7 @@ void show(int code) { pending = code; }
 
 void setup() {
   pinMode(PIN_G, OUTPUT); pinMode(PIN_Y, OUTPUT); pinMode(PIN_R, OUTPUT); pinMode(PIN_BUZ, OUTPUT);
+  pinMode(LED3_R, OUTPUT); pinMode(LED3_G, OUTPUT); pinMode(LED3_B, OUTPUT);
   matrix.begin();
   matrix.setGrayscaleBits(1);
   // Self-test so you can see every light works before the backend is connected.

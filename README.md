@@ -84,10 +84,12 @@ phone (Capture page) --photos--> backend (FastAPI, Nova, S3, Mongo) <--"anything
 
 | UNO Q pin | Part |
 | --- | --- |
-| D8 → 220 Ω → LED → GND | green |
-| D9 → 220 Ω → LED → GND | yellow |
-| D10 → 220 Ω → LED → GND | red |
+| D8 → 220 Ω → RGB green leg | one RGB LED (default, `RGB_LED = true`); yellow = red + green |
+| D10 → 220 Ω → RGB red leg | longest leg → GND (common cathode) or 3.3V (`RGB_COMMON_ANODE = true`) |
 | D11 → buzzer + , buzzer − → GND | buzzer (set `BUZZER_PASSIVE = true` in the sketch for a passive one) |
+
+Three separate LEDs instead: D8 green, D9 yellow, D10 red, each through 220 Ω to GND, and `RGB_LED = false`.
+The onboard RGB LED (LED3) always shows the colour too, so the board works with nothing wired.
 
 The UNO Q header pins are 3.3 V, so the LEDs are a little dimmer than on a 5 V Uno.
 
