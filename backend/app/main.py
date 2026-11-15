@@ -556,7 +556,7 @@ def stats():
         "instant_refunds_usd": round(sum(d.get("price_usd") or 0 for d in docs if d["decision"] == "GREEN"), 2),
         "net_recovery_usd": round(sum(d.get("net_recovery_usd") or 0 for d in docs), 2),
         "shipping_avoided_usd": round(len(not_shipped) * disposition.SHIP_BACK_USD, 2),
-        "awaiting_review": len(held),
+        "awaiting_review": sum(1 for d in held if not d.get("review")),
         "model": _usage_summary(docs),
         "impact": impact.summarise(docs, _wrong_picks_stopped(), FLAGGED),
         "test_set": test_set,

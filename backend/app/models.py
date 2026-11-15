@@ -172,6 +172,6 @@ class NewItemRequest(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    action: Literal["approve", "hold"]
+    action: Literal["approve", "hold", "reject"]   # reject = confirmed fraud: refused, never shipped back
     reviewer: str = Field(min_length=1, max_length=40)
     note: str = Field(default="", max_length=500)

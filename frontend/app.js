@@ -53,16 +53,34 @@ function money(n) { return "$" + Number(n || 0).toLocaleString(undefined, { maxi
 function when(iso) { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString(); }
 function show(node, on) { node.classList.toggle("hidden", !on); }
 
-// Staff pages: wire up the key (and optional API address) fields.
+// Staff pages: the station key lives in a small chip in the top bar. Typed once per browser tab
+// (sessionStorage), then shown as "Connected" with a Change button.
 function setupStaffBar(onReady) {
   const key = document.getElementById("key");
-  const apiField = document.getElementById("api");
+  const connect = document.getElementById("connect");
+  const ok = document.getElementById("key-ok");
+  const change = document.getElementById("key-change");
+  const connected = (on) => {
+    [key, connect].forEach((n) => n && n.classList.toggle("hidden", on));
+    [ok, change].forEach((n) => n && n.classList.toggle("hidden", !on));
+  };
   key.value = store.get("boomerang_key");
-  if (apiField) apiField.value = store.get("boomerang_api");
-  document.getElementById("connect").addEventListener("click", () => {
-    store.set("boomerang_key", key.value.trim());
-    if (apiField) store.set("boomerang_api", apiField.value.trim());
+  const go = () => {
+    const v = key.value.trim();
+    if (!v) return;
+    store.set("boomerang_key", v);
+    connected(true);
     onReady();
-  });
-  if (key.value) onReady();
+  };
+  connect.addEventListener("click", go);
+  key.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  if (change) change.addEventListener("click", () => { connected(false); key.select(); key.focus(); });
+  // A rejected key puts the field back so it can be fixed.
+  window.addEventListener("boomerang:badkey", () => connected(false));
+  if (key.value) go(); else connected(false);
+}
+
+// Call after a failed staff request: if the key was refused, reopen the key field.
+function keyProblem(message) {
+  if (/station key/i.test(message || "")) window.dispatchEvent(new Event("boomerang:badkey"));
 }

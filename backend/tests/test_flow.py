@@ -449,3 +449,20 @@ def test_us_estimate_uses_measured_rates_once_the_test_set_is_big_enough():
     assert e["measured"] == {"fraud_catch": 0.9, "green_share": 0.8}
     fc = next(i for i in e["inputs"] if i["key"] == "fraud_catch")
     assert fc["measured"] and fc["values"] == [0.9, 0.9, 0.9]
+
+
+def test_rejected_fraud_counts_as_a_trip_avoided_and_leaves_the_queue(world):
+    from app.stages import impact
+    database, s3, answer = world
+    do_shipout(s3, order="ORD-1001")
+    answer["result"] = answer["result"].model_copy(update={"scale_reading_g": 300})     # box of rocks: far too light
+    red, _ = do_return(s3, order="ORD-1001")
+    assert red.decision == "RED"
+    assert main.stats()["awaiting_review"] == 1
+    main.review(main.ReviewRequest(action="reject", reviewer="Manju", note="rocks"), return_id=red.return_id)
+    s = main.stats()
+    assert s["awaiting_review"] == 0
+    m = s["impact"]
+    assert m["fraud_rejected"] == 1 and m["trips_avoided"] == 1
+    assert m["co2_avoided_kg"] == round(impact.PARCEL_TRIP_KG_CO2, 2)
+    assert m["refunds_stopped_usd"] == 899
