@@ -11,7 +11,9 @@ def run(price=50.0, model_conf=0.9, code=True, reused=False, **kw):
 
 
 def test_weight_tolerance():
-    assert weight_term(1000, 1100) == 0.0          # within max(150 g, 15%)
+    assert weight_term(1000, 1060) == 0.0          # within max(10 g, 8%)
+    assert weight_term(31, 33) == 0.0              # 2 g on a mousepad: within the 10 g floor
+    assert weight_term(340, 230) > 0               # test set: phone missing a third used to pass
     assert weight_term(1000, 400) == 1.0           # 60% off -> full
     assert 0 < weight_term(1000, 700) < 1
 

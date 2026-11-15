@@ -510,3 +510,66 @@ def test_station_cursor_has_no_plus_and_tolerates_a_decoded_plus(world):
     c = main.station_events(after=None)["cursor"]
     assert c.endswith("Z") and "+" not in c
     assert main.station_events(after="2026-11-15T05:43:39.114680 00:00")["events"] == []   # "+" sent unencoded
+
+
+# ---------------------------------------------------------------- test-set regressions (Nov 14)
+def _cheap_shipout(s3, serial="SN00000001", weight=260):
+    do_shipout(s3, order="ORD-1005", weight=weight, serial=serial)        # headphones, $149
+
+
+def test_phone_missing_a_third_of_its_weight_is_not_instant(world):
+    _, s3, answer = world
+    _cheap_shipout(s3, weight=340)
+    answer["result"] = answer["result"].model_copy(update={"scale_reading_g": None, "serial_read": "SN00000001"})
+    r, _ = do_return(s3, order="ORD-1005", weight=230)
+    assert r.decision != "GREEN" and any(x.startswith("WEIGHT_MISMATCH") for x in r.reasons)
+
+
+def test_new_damage_is_never_instant(world):
+    _, s3, answer = world
+    _cheap_shipout(s3)
+    answer["result"] = answer["result"].model_copy(update={"scale_reading_g": 261, "serial_read": "SN00000001",
+                                                           "new_damage": ["tape across the top"], "grade": "B"})
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision == "YELLOW" and "NEW_DAMAGE" in r.reasons
+
+
+@pytest.mark.parametrize("shipped,read", [("T4AI12Z8", "THA1X12Z8"), ("BJPTUY", "BUPFTUY"), ("TYZ341A", "T112-341A")])
+def test_honest_two_character_misreads_are_yellow_not_review(world, shipped, read):
+    _, s3, answer = world
+    _cheap_shipout(s3, serial=shipped)
+    answer["result"] = answer["result"].model_copy(update={"scale_reading_g": 261, "serial_read": read,
+                                                           "label_codes": [read]})
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision == "YELLOW" and "SERIAL_NEAR_MATCH" in r.reasons
+
+
+@pytest.mark.parametrize("shipped,read", [("BMRUYTUJ", "DNXTTY2"), ("DNXTYZ", "TY12-341A")])
+def test_real_tag_swaps_are_still_caught(world, shipped, read):
+    _, s3, answer = world
+    _cheap_shipout(s3, serial=shipped)
+    answer["result"] = answer["result"].model_copy(update={"scale_reading_g": 261, "serial_read": read,
+                                                           "label_codes": [read]})
+    r, _ = do_return(s3, order="ORD-1005")
+    assert r.decision in ("RED", "REVIEW") and "SERIAL_MISMATCH" in r.reasons
+
+
+def test_model_gets_the_shipout_photo_as_reference(world, monkeypatch):
+    _, s3, answer = world
+    seen = {}
+
+    def fake_grade(item, serial_jpg, fp, code, ship_item_jpg=None):
+        seen["ref"] = ship_item_jpg
+        return answer["result"].model_copy(update={"scale_reading_g": 261, "serial_read": "SN00000001"}), "fake"
+    monkeypatch.setattr(main.vision, "grade", fake_grade)
+    _cheap_shipout(s3)
+    do_return(s3, order="ORD-1005")
+    assert seen["ref"] and seen["ref"][:2] == b"\xff\xd8"           # a JPEG: the sanitized ship-out photo
+
+
+def test_prompt_with_reference_photo():
+    from app.stages.vision import build_prompt
+    with_ref = build_prompt({"product": "Headphones"}, "0000", with_reference=True)
+    without = build_prompt({"product": "Headphones"}, "0000")
+    assert "Photo 0" in with_ref and "tape, stickers or marks" in with_ref and "item_seen" in with_ref
+    assert "Photo 0" not in without and "item_seen" in without

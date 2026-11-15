@@ -42,3 +42,30 @@ def matches(expected: str | None, reads: list[str | None]) -> bool | None:
         if len(r) > len(want) and want in r:          # serial printed inside a longer code/barcode text
             return True
     return False
+
+
+def _edit_distance(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+NEAR_MAX_EDITS = 2
+
+
+def near_miss(expected: str | None, reads: list[str | None]) -> bool:
+    """True if some read is exactly 2 edits from the shipped serial (after folding look-alikes).
+
+    Test set: every honest return flagged for its serial was a 2-character misread of a handwritten
+    tag, while every real tag swap was 5+ characters off. A near miss is treated as "can't tell"
+    (refund after inspection, never instant), not as proof of a swap.
+    """
+    want = norm(expected)
+    got = [r for r in (norm(x) for x in reads) if r]
+    if not want or len(want) < FUZZY_MIN_LEN:
+        return False
+    return any(_edit_distance(r, want) <= NEAR_MAX_EDITS for r in got)

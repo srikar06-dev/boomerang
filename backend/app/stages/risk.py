@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 
 WEIGHTS = {"W": 0.30, "V": 0.30, "S": 0.15, "D": 0.10, "H": 0.10, "P": 0.05}
 
-# Weight tolerance: below this difference W = 0 (scale reads to ~100 g)
-WEIGHT_TOL_G = 150
-WEIGHT_TOL_PCT = 0.15
+# Weight tolerance: below this difference W = 0. Test set: honest returns varied by at most 3 g,
+# while a phone missing a third of its weight (340 g -> 230 g) passed the old 150 g / 15% tolerance.
+WEIGHT_TOL_G = 10
+WEIGHT_TOL_PCT = 0.08
 WEIGHT_FULL_PCT = 0.50  # W reaches 1 at a 50% difference
 
 

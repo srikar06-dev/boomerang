@@ -61,6 +61,12 @@ def decide(
         decision = REVIEW                  # we recorded a ship-out weight but got no return weight
     if decision == GREEN and ("SERIAL" in risk.missing or risk.terms["V"] > 0.5):
         decision = YELLOW                  # serial unreadable, or the unit match is doubtful
+    # 7b. Noticed but small problems are never instant either: the score alone let a 32% weight
+    #     loss and visible new damage through as GREEN in the test set.
+    if decision == GREEN and risk.terms["W"] > 0:
+        decision = YELLOW                  # reason WEIGHT_MISMATCH already added by risk.score
+    if decision == GREEN and risk.terms["D"] > 0:
+        decision = YELLOW                  # reason NEW_DAMAGE already added by risk.score
     # 8. Local OpenCV check says the photos do not show the same unit, but the model says they do.
     #    Two independent readers disagree -> a person looks. Never RED on this signal alone.
     if visual_disagrees and decision in (GREEN, YELLOW):
